@@ -1,0 +1,30 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments and Conda
+.venv/
+venv/
+env/
+.conda/
+
+# Build and packaging outputs
+build/
+dist/
+*.egg-info/
+
+# IDE/editor settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local runtime data
+*.db
+
+# Optional local user preferences
+# If you want to share defaults, remove this line and commit prefs.json
+prefs.json
