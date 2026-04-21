@@ -6,6 +6,7 @@ from PyQt6.QtCore import QPoint, QSize, Qt, QMimeData, pyqtSignal
 from PyQt6.QtGui import QCursor, QDrag, QFont, QMouseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QColorDialog,
     QDialog,
     QFrame,
@@ -160,13 +161,14 @@ class KanbanTaskList(QListWidget):
     task_delete_requested = pyqtSignal(int)
     task_edit_requested = pyqtSignal(int)
 
-    def __init__(self, category_id, parent=None):
+    def __init__(self, category_id, parent=None, allow_drop: bool = True, allow_drag: bool = True):
         super().__init__(parent)
         self.category_id = category_id
+        self._allow_drop = allow_drop
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
-        self.setDragEnabled(True)
-        self.setAcceptDrops(True)
+        self.setDragEnabled(allow_drag)
+        self.setAcceptDrops(allow_drop)
         self.setDropIndicatorShown(True)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -202,6 +204,9 @@ class KanbanTaskList(QListWidget):
         super().startDrag(supportedActions)
 
     def dropEvent(self, event):
+        if not self._allow_drop:
+            event.ignore()
+            return
         super().dropEvent(event)
         if KanbanTaskList._drag_task_id is not None:
             self.task_dropped.emit(int(KanbanTaskList._drag_task_id), self.category_id)
@@ -353,7 +358,20 @@ class KanbanColumn(QFrame):
     delete_category_requested = pyqtSignal(int)
     category_drop_requested = pyqtSignal(int, int)
 
-    def __init__(self, category_id, name: str, color: str, editable: bool, reorderable: bool, allow_add: bool, parent=None):
+    def __init__(
+        self,
+        category_id,
+        name: str,
+        color: str,
+        editable: bool,
+        reorderable: bool,
+        allow_add: bool,
+        parent=None,
+        *,
+        bg_color: Optional[str] = None,
+        allow_drop: bool = True,
+        allow_drag: bool = True,
+    ):
         super().__init__(parent)
         self.category_id = category_id
         self._editable = editable
@@ -364,9 +382,10 @@ class KanbanColumn(QFrame):
         self.setMaximumWidth(520)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         border_color = color or COLORS['border']
+        fill_color = bg_color or COLORS['surface']
         self.setStyleSheet(f"""
             QFrame#kanbanColumn {{
-                background: {COLORS['surface']};
+                background: {fill_color};
                 border: 1px solid {COLORS['border']};
                 border-top: 4px solid {border_color};
                 border-radius: 10px;
@@ -415,7 +434,7 @@ class KanbanColumn(QFrame):
 
         root.addLayout(header)
 
-        self.list_widget = KanbanTaskList(self.category_id)
+        self.list_widget = KanbanTaskList(self.category_id, allow_drop=allow_drop, allow_drag=allow_drag)
         root.addWidget(self.list_widget)
 
     def set_column_width(self, width: int):
@@ -466,10 +485,12 @@ class KanbanView(QWidget):
     task_deleted = pyqtSignal(int)
     task_edit_requested = pyqtSignal(int)
     categories_reordered = pyqtSignal(list)
+    show_quick_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.min_column_width = 260
+        self.show_quick = False
         self._category_order_ids: list[int] = []
         self._columns: list[KanbanColumn] = []
         self._build_ui()
@@ -489,6 +510,11 @@ class KanbanView(QWidget):
         self.count_label = QLabel(t("task_count", n=0, s="s"))
         self.count_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
         top.addWidget(self.count_label)
+
+        self.show_quick_check = QCheckBox(t("kanban_show_quick"))
+        self.show_quick_check.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.show_quick_check.stateChanged.connect(self._on_show_quick_changed)
+        top.addWidget(self.show_quick_check)
 
         self.add_col_btn = QPushButton(t("kanban_add_category"))
         self.add_col_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -537,6 +563,17 @@ class KanbanView(QWidget):
     def retranslate(self):
         self.title.setText(t("nav_kanban"))
         self.add_col_btn.setText(t("kanban_add_category"))
+        self.show_quick_check.setText(t("kanban_show_quick"))
+
+    def set_show_quick(self, enabled: bool):
+        self.show_quick = bool(enabled)
+        self.show_quick_check.blockSignals(True)
+        self.show_quick_check.setChecked(self.show_quick)
+        self.show_quick_check.blockSignals(False)
+
+    def _on_show_quick_changed(self, state):
+        self.show_quick = bool(state)
+        self.show_quick_toggled.emit(self.show_quick)
 
     def set_layout_preferences(self, min_column_width: int):
         self.min_column_width = max(180, int(min_column_width))
@@ -552,15 +589,37 @@ class KanbanView(QWidget):
 
         self.count_label.setText(t("task_count", n=len(tasks), s="" if len(tasks) == 1 else "s"))
 
+        quick_tasks: list[dict] = []
+        normal_tasks: list[dict] = []
+        for task in tasks:
+            if self.show_quick and (task.get("task_type") == "quick"):
+                quick_tasks.append(task)
+            else:
+                normal_tasks.append(task)
+
         grouped: dict[object, list[dict]] = {None: []}
         for cat in categories:
             grouped[cat["id"]] = []
 
-        for task in tasks:
+        for task in normal_tasks:
             cat_id = task.get("category_id")
             if cat_id not in grouped:
                 cat_id = None
             grouped[cat_id].append(task)
+
+        if self.show_quick:
+            self._add_column(
+                "__quick__",
+                t("kanban_quick_column"),
+                "#9CA3AF",
+                False,
+                False,
+                False,
+                quick_tasks,
+                bg_color="#E5E7EB",
+                allow_drop=False,
+                allow_drag=False,
+            )
 
         # Default uncategorized column
         self._add_column(None, t("kanban_uncategorized"), "", False, False, True, grouped.get(None, []))
@@ -578,8 +637,31 @@ class KanbanView(QWidget):
 
         self._apply_column_sizing()
 
-    def _add_column(self, category_id, name: str, color: str, editable: bool, reorderable: bool, allow_add: bool, tasks: list[dict]):
-        column = KanbanColumn(category_id, name, color, editable, reorderable, allow_add)
+    def _add_column(
+        self,
+        category_id,
+        name: str,
+        color: str,
+        editable: bool,
+        reorderable: bool,
+        allow_add: bool,
+        tasks: list[dict],
+        *,
+        bg_color: Optional[str] = None,
+        allow_drop: bool = True,
+        allow_drag: bool = True,
+    ):
+        column = KanbanColumn(
+            category_id,
+            name,
+            color,
+            editable,
+            reorderable,
+            allow_add,
+            bg_color=bg_color,
+            allow_drop=allow_drop,
+            allow_drag=allow_drag,
+        )
         column.add_task_requested.connect(self.add_task_requested.emit)
         column.edit_category_requested.connect(self.edit_category_requested.emit)
         column.delete_category_requested.connect(self.delete_category_requested.emit)

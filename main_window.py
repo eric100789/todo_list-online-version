@@ -16,6 +16,7 @@ from styles import COLORS, build_main_stylesheet, set_theme, get_theme
 from database import (
     get_active_tasks, complete_task, delete_task, toggle_star,
     add_task, update_task, get_task_by_id,
+    get_quick_tasks, update_task_position,
     get_board_categories, add_board_category, update_board_category,
     delete_board_category, update_task_category,
     update_board_category_positions
@@ -26,6 +27,7 @@ from history_view import HistoryView
 from settings_panel import SettingsPanel
 from mini_mode import MiniMode
 from notes_view import NotesView
+from quick_view import QuickView
 from i18n import t, set_language, get_language
 from kanban_view import KanbanView, CategoryDialog
 
@@ -69,6 +71,7 @@ class MainWindow(QMainWindow):
         self._mini_h = prefs.get("mini_height", 380)
         self._mini_view_mode = prefs.get("mini_view_mode", "list")
         self._kanban_min_col_width = prefs.get("kanban_min_col_width", 260)
+        self._kanban_show_quick = prefs.get("kanban_show_quick", False)
 
         set_language(lang)
         set_theme(theme)
@@ -86,6 +89,7 @@ class MainWindow(QMainWindow):
         self._current_view = 0
         self._build_ui()
         self.refresh_tasks()
+        self.refresh_quick()
         self.refresh_kanban()
 
     def _build_ui(self):
@@ -126,21 +130,28 @@ class MainWindow(QMainWindow):
         self.nav_kanban_btn.setObjectName("navBtn")
         self.nav_kanban_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_kanban_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.nav_kanban_btn.clicked.connect(lambda: self._switch_view(1))
+        self.nav_kanban_btn.clicked.connect(lambda: self._switch_view(2))
         header_layout.addWidget(self.nav_kanban_btn)
+
+        self.nav_quick_btn = QPushButton(t("nav_quick"))
+        self.nav_quick_btn.setObjectName("navBtn")
+        self.nav_quick_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
+        self.nav_quick_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.nav_quick_btn.clicked.connect(lambda: self._switch_view(1))
+        header_layout.addWidget(self.nav_quick_btn)
 
         self.nav_history_btn = QPushButton(t("nav_history"))
         self.nav_history_btn.setObjectName("navBtn")
         self.nav_history_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_history_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.nav_history_btn.clicked.connect(lambda: self._switch_view(2))
+        self.nav_history_btn.clicked.connect(lambda: self._switch_view(3))
         header_layout.addWidget(self.nav_history_btn)
 
         self.nav_notes_btn = QPushButton(t("nav_notes"))
         self.nav_notes_btn.setObjectName("navBtn")
         self.nav_notes_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_notes_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.nav_notes_btn.clicked.connect(lambda: self._switch_view(3))
+        self.nav_notes_btn.clicked.connect(lambda: self._switch_view(4))
         header_layout.addWidget(self.nav_notes_btn)
 
         self.nav_settings_btn = QPushButton("⚙")
@@ -148,7 +159,7 @@ class MainWindow(QMainWindow):
         self.nav_settings_btn.setFont(QFont("Segoe UI", 16))
         self.nav_settings_btn.setFixedSize(40, 40)
         self.nav_settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.nav_settings_btn.clicked.connect(lambda: self._switch_view(4))
+        self.nav_settings_btn.clicked.connect(lambda: self._switch_view(5))
         header_layout.addWidget(self.nav_settings_btn)
 
         main_layout.addWidget(header)
@@ -195,7 +206,16 @@ class MainWindow(QMainWindow):
 
         self.stack.addWidget(self.tasks_page)
 
-        # View 1: Kanban
+        # View 1: Quick sticky notes
+        self.quick_view = QuickView()
+        self.quick_view.add_quick_requested.connect(self._add_quick)
+        self.quick_view.task_completed.connect(self._complete_task)
+        self.quick_view.task_deleted.connect(self._delete_task)
+        self.quick_view.task_edit_requested.connect(self._show_quick_detail)
+        self.quick_view.task_moved.connect(self._move_quick_card)
+        self.stack.addWidget(self.quick_view)
+
+        # View 2: Kanban
         self.kanban_view = KanbanView()
         self.kanban_view.add_category_requested.connect(self._add_category)
         self.kanban_view.add_task_requested.connect(self._add_task)
@@ -206,19 +226,21 @@ class MainWindow(QMainWindow):
         self.kanban_view.task_deleted.connect(self._delete_task)
         self.kanban_view.task_edit_requested.connect(self._show_task_detail)
         self.kanban_view.categories_reordered.connect(self._reorder_categories)
+        self.kanban_view.show_quick_toggled.connect(self._on_kanban_show_quick_toggled)
         self.kanban_view.set_layout_preferences(self._kanban_min_col_width)
+        self.kanban_view.set_show_quick(self._kanban_show_quick)
         self.stack.addWidget(self.kanban_view)
 
-        # View 2: History
+        # View 3: History
         self.history_view = HistoryView()
         self.history_view.task_deleted.connect(self._on_history_deleted)
         self.stack.addWidget(self.history_view)
 
-        # View 3: Notes
+        # View 4: Notes
         self.notes_view = NotesView()
         self.stack.addWidget(self.notes_view)
 
-        # View 4: Settings (scrollable)
+        # View 5: Settings (scrollable)
         self.settings_panel = SettingsPanel()
         self.settings_panel.opacity_changed.connect(self._set_opacity)
         self.settings_panel.always_on_top_changed.connect(self._set_always_on_top)
@@ -255,15 +277,18 @@ class MainWindow(QMainWindow):
         if index == 0:
             self.refresh_tasks()
         elif index == 1:
-            self.refresh_kanban()
+            self.refresh_quick()
         elif index == 2:
-            self.history_view.refresh()
+            self.refresh_kanban()
         elif index == 3:
+            self.history_view.refresh()
+        elif index == 4:
             self.notes_view.refresh()
 
     def _update_nav_style(self, active_index):
         buttons = [
             self.nav_tasks_btn,
+            self.nav_quick_btn,
             self.nav_kanban_btn,
             self.nav_history_btn,
             self.nav_notes_btn,
@@ -334,13 +359,32 @@ class MainWindow(QMainWindow):
                 is_starred=data["is_starred"],
                 category_id=data.get("category_id"),
                 color=data.get("color", ""),
+                task_type="task",
             )
             self.refresh_tasks()
+            self.refresh_quick()
+            self.refresh_kanban()
+
+    def _add_quick(self):
+        dlg = TaskDialog(self, task_kind="quick")
+        if dlg.exec() and dlg.result_data:
+            data = dlg.result_data
+            add_task(
+                title=data["title"],
+                description=data["description"],
+                due_date=data["due_date"],
+                is_starred=data["is_starred"],
+                category_id=None,
+                color=data.get("color", ""),
+                task_type="quick",
+            )
+            self.refresh_quick()
             self.refresh_kanban()
 
     def _complete_task(self, task_id):
         complete_task(task_id)
         self.refresh_tasks()
+        self.refresh_quick()
         self.refresh_kanban()
 
     def _delete_task(self, task_id):
@@ -353,17 +397,20 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             delete_task(task_id)
             self.refresh_tasks()
+            self.refresh_quick()
             self.refresh_kanban()
 
     def _toggle_star(self, task_id):
         toggle_star(task_id)
         self.refresh_tasks()
+        self.refresh_quick()
         self.refresh_kanban()
 
     def _show_task_detail(self, task_id):
         task = get_task_by_id(task_id)
         if task:
-            dlg = TaskDialog(self, task=task)
+            task_kind = "quick" if task.get("task_type") == "quick" else "task"
+            dlg = TaskDialog(self, task=task, task_kind=task_kind)
             if dlg.exec() and dlg.result_data:
                 data = dlg.result_data
                 update_task(
@@ -374,14 +421,47 @@ class MainWindow(QMainWindow):
                     is_starred=data["is_starred"],
                     category_id=data.get("category_id"),
                     color=data.get("color", ""),
+                    task_type=task.get("task_type") or "task",
                 )
                 self.refresh_tasks()
+                self.refresh_quick()
                 self.refresh_kanban()
 
+    def _show_quick_detail(self, task_id):
+        task = get_task_by_id(task_id)
+        if task:
+            dlg = TaskDialog(self, task=task, task_kind="quick")
+            if dlg.exec() and dlg.result_data:
+                data = dlg.result_data
+                update_task(
+                    task_id,
+                    title=data["title"],
+                    description=data["description"],
+                    due_date=data["due_date"],
+                    is_starred=data["is_starred"],
+                    category_id=None,
+                    color=data.get("color", ""),
+                    task_type="quick",
+                )
+                self.refresh_quick()
+                self.refresh_kanban()
+
+    def _move_quick_card(self, task_id: int, x: int, y: int):
+        update_task_position(task_id, x, y)
+
+    def refresh_quick(self):
+        quick_tasks = get_quick_tasks()
+        self.quick_view.refresh(quick_tasks)
+
     def refresh_kanban(self):
-        tasks = get_active_tasks()
+        tasks = get_active_tasks(include_quick=self._kanban_show_quick)
         categories = get_board_categories()
         self.kanban_view.refresh(tasks, categories)
+
+    def _on_kanban_show_quick_toggled(self, enabled: bool):
+        self._kanban_show_quick = bool(enabled)
+        self._save_current_prefs()
+        self.refresh_kanban()
 
     def _add_category(self):
         dlg = CategoryDialog(self)
@@ -411,8 +491,12 @@ class MainWindow(QMainWindow):
             self.refresh_kanban()
 
     def _move_task_to_category(self, task_id: int, category_id):
+        task = get_task_by_id(task_id)
+        if task and (task.get("task_type") == "quick"):
+            return
         update_task_category(task_id, category_id)
         self.refresh_tasks()
+        self.refresh_quick()
         self.refresh_kanban()
 
     def _reorder_categories(self, ordered_ids: list[int]):
@@ -505,6 +589,7 @@ class MainWindow(QMainWindow):
         # Update header text
         self.app_title.setText(t("app_title"))
         self.nav_tasks_btn.setText(t("nav_tasks"))
+        self.nav_quick_btn.setText(t("nav_quick"))
         self.nav_kanban_btn.setText(t("nav_kanban"))
         self.nav_history_btn.setText(t("nav_history"))
         self.nav_notes_btn.setText(t("nav_notes"))
@@ -514,6 +599,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.retranslate()
         self.history_view.retranslate()
         self.notes_view.retranslate()
+        self.quick_view.retranslate()
         self.kanban_view.retranslate()
 
         # Update nav style
@@ -521,6 +607,7 @@ class MainWindow(QMainWindow):
 
         # Refresh content
         self.refresh_tasks()
+        self.refresh_quick()
         self.refresh_kanban()
         self.history_view.refresh()
 
@@ -541,4 +628,5 @@ class MainWindow(QMainWindow):
             "mini_height": self._mini_h,
             "mini_view_mode": self._mini_view_mode,
             "kanban_min_col_width": self._kanban_min_col_width,
+            "kanban_show_quick": self._kanban_show_quick,
         })

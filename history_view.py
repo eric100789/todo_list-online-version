@@ -75,7 +75,8 @@ class HistoryListView(QWidget):
         task = get_task_by_id(task_id)
         if task:
             from database import update_task
-            dlg = TaskDialog(self, task=task)
+            task_kind = "quick" if task.get("task_type") == "quick" else "task"
+            dlg = TaskDialog(self, task=task, task_kind=task_kind)
             if dlg.exec() and dlg.result_data:
                 data = dlg.result_data
                 update_task(
@@ -83,7 +84,10 @@ class HistoryListView(QWidget):
                     title=data["title"],
                     description=data["description"],
                     due_date=data["due_date"],
-                    is_starred=data["is_starred"]
+                    is_starred=data["is_starred"],
+                    category_id=data.get("category_id"),
+                    color=data.get("color", ""),
+                    task_type=task.get("task_type") or "task",
                 )
                 self.refresh()
 

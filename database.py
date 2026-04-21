@@ -55,6 +55,12 @@ def init_db():
         conn.execute("ALTER TABLE tasks ADD COLUMN category_id INTEGER")
     if not _column_exists(conn, "tasks", "color"):
         conn.execute("ALTER TABLE tasks ADD COLUMN color TEXT DEFAULT ''")
+    if not _column_exists(conn, "tasks", "task_type"):
+        conn.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'task'")
+    if not _column_exists(conn, "tasks", "pos_x"):
+        conn.execute("ALTER TABLE tasks ADD COLUMN pos_x INTEGER DEFAULT 0")
+    if not _column_exists(conn, "tasks", "pos_y"):
+        conn.execute("ALTER TABLE tasks ADD COLUMN pos_y INTEGER DEFAULT 0")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS board_categories (
@@ -77,15 +83,35 @@ def init_db():
     conn.close()
 
 
-def add_task(title, description="", due_date=None, is_starred=False, category_id=None, color=""):
+def add_task(
+    title,
+    description="",
+    due_date=None,
+    is_starred=False,
+    category_id=None,
+    color="",
+    task_type="task",
+    pos_x=0,
+    pos_y=0,
+):
     """Add a new task to the database."""
     conn = get_connection()
     cursor = conn.execute(
         """
-        INSERT INTO tasks (title, description, due_date, is_starred, category_id, color)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO tasks (title, description, due_date, is_starred, category_id, color, task_type, pos_x, pos_y)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (title, description, due_date, int(is_starred), category_id, color or "")
+        (
+            title,
+            description,
+            due_date,
+            int(is_starred),
+            category_id,
+            color or "",
+            task_type or "task",
+            int(pos_x or 0),
+            int(pos_y or 0),
+        )
     )
     task_id = cursor.lastrowid
     conn.commit()
@@ -93,16 +119,33 @@ def add_task(title, description="", due_date=None, is_starred=False, category_id
     return task_id
 
 
-def get_active_tasks():
+def get_active_tasks(include_quick: bool = False):
     """Get all active tasks sorted by the specified hierarchy."""
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT * FROM tasks WHERE status = 'active'
+    where_quick = "" if include_quick else "AND COALESCE(task_type, 'task') != 'quick'"
+    rows = conn.execute(
+        f"""
+        SELECT * FROM tasks WHERE status = 'active' {where_quick}
         ORDER BY
             is_starred DESC,
             CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
             due_date ASC
-    """).fetchall()
+    """
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_quick_tasks():
+    """Get all active quick tasks for the sticky-note page."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM tasks
+        WHERE status = 'active' AND COALESCE(task_type, 'task') = 'quick'
+        ORDER BY created_at ASC
+        """
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -168,16 +211,34 @@ def set_task_star(task_id: int, is_starred: bool):
     conn.close()
 
 
-def update_task(task_id, title, description="", due_date=None, is_starred=False, category_id=None, color=""):
+def update_task(
+    task_id,
+    title,
+    description="",
+    due_date=None,
+    is_starred=False,
+    category_id=None,
+    color="",
+    task_type="task",
+):
     """Update task details."""
     conn = get_connection()
     conn.execute(
         """
         UPDATE tasks
-        SET title=?, description=?, due_date=?, is_starred=?, category_id=?, color=?
+        SET title=?, description=?, due_date=?, is_starred=?, category_id=?, color=?, task_type=?
         WHERE id=?
         """,
-        (title, description, due_date, int(is_starred), category_id, color or "", task_id)
+        (
+            title,
+            description,
+            due_date,
+            int(is_starred),
+            category_id,
+            color or "",
+            task_type or "task",
+            task_id,
+        )
     )
     conn.commit()
     conn.close()
@@ -278,6 +339,17 @@ def update_task_color(task_id: int, color: str = ""):
     """Update a task card color."""
     conn = get_connection()
     conn.execute("UPDATE tasks SET color=? WHERE id=?", (color or "", task_id))
+    conn.commit()
+    conn.close()
+
+
+def update_task_position(task_id: int, pos_x: int, pos_y: int):
+    """Update saved card position for sticky quick tasks."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE tasks SET pos_x=?, pos_y=? WHERE id=?",
+        (int(pos_x), int(pos_y), task_id),
+    )
     conn.commit()
     conn.close()
 
