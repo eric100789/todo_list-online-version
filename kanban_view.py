@@ -614,7 +614,7 @@ class KanbanView(QWidget):
                 "#9CA3AF",
                 False,
                 False,
-                False,
+                True,
                 quick_tasks,
                 bg_color="#E5E7EB",
                 allow_drop=False,

@@ -178,6 +178,12 @@ class QuickView(QWidget):
         self.add_btn.clicked.connect(self.add_quick_requested.emit)
         head.addWidget(self.add_btn)
 
+        self.reflow_btn = QPushButton(t("quick_reflow"))
+        self.reflow_btn.setObjectName("ghostBtn")
+        self.reflow_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.reflow_btn.clicked.connect(self.reflow_cards)
+        head.addWidget(self.reflow_btn)
+
         root.addLayout(head)
 
         self.scroll = QScrollArea()
@@ -202,6 +208,7 @@ class QuickView(QWidget):
     def retranslate(self):
         self.title.setText(t("quick_title"))
         self.add_btn.setText(t("add_quick"))
+        self.reflow_btn.setText(t("quick_reflow"))
 
     def refresh(self, tasks: list[dict]):
         for child in self.canvas.findChildren(QuickStickyCard):
@@ -245,5 +252,29 @@ class QuickView(QWidget):
 
             max_right = max(max_right, card.x() + card.width() + MARGIN)
             max_bottom = max(max_bottom, card.y() + card.height() + MARGIN)
+
+        self.canvas.setMinimumSize(max(980, max_right), max(680, max_bottom))
+
+    def reflow_cards(self):
+        """Re-layout sticky cards to fit current viewport without overflowing canvas bounds."""
+        cards = self.canvas.findChildren(QuickStickyCard)
+        if not cards:
+            return
+
+        view_w = max(self.scroll.viewport().width(), CARD_W + 2 * MARGIN)
+        cols = max(1, (view_w - MARGIN) // (CARD_W + 20))
+
+        max_right = view_w
+        max_bottom = self.scroll.viewport().height()
+
+        for idx, card in enumerate(cards):
+            col = idx % cols
+            row = idx // cols
+            x = MARGIN + col * (CARD_W + 20)
+            y = MARGIN + row * (CARD_H + 20)
+            card.move(x, y)
+            card.moved.emit(card.task_id, x, y)
+            max_right = max(max_right, x + CARD_W + MARGIN)
+            max_bottom = max(max_bottom, y + CARD_H + MARGIN)
 
         self.canvas.setMinimumSize(max(980, max_right), max(680, max_bottom))

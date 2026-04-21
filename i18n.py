@@ -21,6 +21,7 @@ STRINGS = {
     "all_done": {"en": "All done! 🎉", "zh_tw": "全部完成！🎉"},
     "quick_title": {"en": "⚡ Quick", "zh_tw": "⚡ 快速"},
     "quick_empty": {"en": "No quick items yet. Add one for sudden ideas.", "zh_tw": "目前沒有快速項目，想到就新增一張吧！"},
+    "quick_reflow": {"en": "Reflow", "zh_tw": "重新整理"},
 
     # Task card
     "no_due_date": {"en": "No due date", "zh_tw": "無截止日期"},

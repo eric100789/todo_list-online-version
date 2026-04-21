@@ -349,6 +349,9 @@ class MainWindow(QMainWindow):
             self.task_layout.insertWidget(self.task_layout.count() - 1, card)
 
     def _add_task(self, category_id=None):
+        if category_id == "__quick__":
+            self._add_quick()
+            return
         dlg = TaskDialog(self, default_category_id=category_id)
         if dlg.exec() and dlg.result_data:
             data = dlg.result_data
