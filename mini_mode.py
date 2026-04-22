@@ -2,13 +2,13 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QSizePolicy, QSlider, QCheckBox
+    QScrollArea, QFrame, QSizePolicy, QSlider, QCheckBox, QToolButton, QMenu
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QCursor
+from PyQt6.QtGui import QFont, QCursor, QAction
 
 from styles import COLORS, build_mini_mode_style
-from database import get_active_tasks, get_board_categories
+from database import get_active_tasks, get_board_categories, get_quick_tasks
 from date_utils import format_due_date, is_overdue
 from i18n import t
 
@@ -19,13 +19,14 @@ class MiniMode(QWidget):
     restore_requested = pyqtSignal()
     view_mode_changed = pyqtSignal(str)
 
-    def __init__(self, opacity=1.0, on_top=True, width=200, height=380, view_mode="list", parent=None):
+    def __init__(self, opacity=1.0, on_top=True, width=200, height=380, view_mode="tasks", visible_views=None, parent=None):
         super().__init__(parent)
         self._on_top = on_top
         self._opacity = opacity
         self._w = width
         self._h = height
-        self._view_mode = view_mode if view_mode in ("list", "kanban") else "list"
+        self._visible_views = self._normalize_visible_views(visible_views)
+        self._view_mode = view_mode if view_mode in self._visible_views else (self._visible_views[0] if self._visible_views else "tasks")
         self.setWindowTitle("Todo")
         self.setFixedSize(self._w, self._h)
         self._apply_window_flags()
@@ -35,6 +36,13 @@ class MiniMode(QWidget):
         self._drag_pos = None
         self._build_ui()
         self.refresh()
+
+    def _normalize_visible_views(self, views):
+        normalized = []
+        for view in views or ["tasks", "kanban"]:
+            if view in ("tasks", "quick", "kanban") and view not in normalized:
+                normalized.append(view)
+        return normalized or ["tasks"]
 
     def _apply_window_flags(self):
         flags = Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint
@@ -51,16 +59,28 @@ class MiniMode(QWidget):
         title_bar = QHBoxLayout()
         title_bar.setSpacing(4)
 
-        title_label = QLabel(t("mini_title"))
-        title_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        title_bar.addWidget(title_label, 1)
+        self.title_label = QLabel(t("mini_title"))
+        self.title_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        title_bar.addWidget(self.title_label, 1)
 
-        self.mode_btn = QPushButton()
-        self.mode_btn.setFixedHeight(24)
-        self.mode_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.mode_btn.setObjectName("ghostBtn")
-        self.mode_btn.clicked.connect(self._toggle_view_mode)
-        title_bar.addWidget(self.mode_btn)
+        self.cycle_btn = QPushButton("🔄")
+        self.cycle_btn.setFixedSize(24, 24)
+        self.cycle_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.cycle_btn.setObjectName("ghostBtn")
+        self.cycle_btn.setToolTip(t("mini_cycle_view"))
+        self.cycle_btn.clicked.connect(self._toggle_view_mode)
+        title_bar.addWidget(self.cycle_btn)
+
+        self.view_menu_btn = QToolButton()
+        self.view_menu_btn.setText("☰")
+        self.view_menu_btn.setFixedSize(24, 24)
+        self.view_menu_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.view_menu_btn.setObjectName("ghostBtn")
+        self.view_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.view_menu = QMenu(self)
+        self.view_menu_btn.setMenu(self.view_menu)
+        self._rebuild_view_menu()
+        title_bar.addWidget(self.view_menu_btn)
 
         restore_btn = QPushButton("⬜")
         restore_btn.setFixedSize(24, 24)
@@ -156,10 +176,10 @@ class MiniMode(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        tasks = get_active_tasks()
+        tasks = self._get_tasks_for_view()
 
         if not tasks:
-            empty = QLabel(t("all_done"))
+            empty = QLabel(self._empty_text_for_view())
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setFont(QFont("Segoe UI", 10))
             empty.setStyleSheet(f"color: {COLORS['text_muted']}; padding: 20px;")
@@ -168,10 +188,26 @@ class MiniMode(QWidget):
 
         if self._view_mode == "kanban":
             self._render_kanban_mode(tasks)
+        elif self._view_mode == "quick":
+            for task in tasks:
+                card = self._create_mini_card(task)
+                self.container_layout.insertWidget(self.container_layout.count() - 1, card)
         else:
             for task in tasks:
                 card = self._create_mini_card(task)
                 self.container_layout.insertWidget(self.container_layout.count() - 1, card)
+
+    def _get_tasks_for_view(self):
+        if self._view_mode == "quick":
+            return get_quick_tasks()
+        if self._view_mode == "kanban":
+            return get_active_tasks(include_quick=False)
+        return get_active_tasks(include_quick=False)
+
+    def _empty_text_for_view(self):
+        if self._view_mode == "quick":
+            return t("quick_empty")
+        return t("all_done")
 
     def _render_kanban_mode(self, tasks: list[dict]):
         grouped: dict[object, list[dict]] = {None: []}
@@ -277,20 +313,57 @@ class MiniMode(QWidget):
         self.show()
 
     def _toggle_view_mode(self):
-        self._view_mode = "kanban" if self._view_mode == "list" else "list"
+        if not self._visible_views:
+            return
+        if self._view_mode not in self._visible_views:
+            self._view_mode = self._visible_views[0]
+        else:
+            idx = self._visible_views.index(self._view_mode)
+            self._view_mode = self._visible_views[(idx + 1) % len(self._visible_views)]
         self._update_mode_button_text()
         self.view_mode_changed.emit(self._view_mode)
         self.refresh()
 
     def _update_mode_button_text(self):
-        self.mode_btn.setText(t("mini_mode_kanban") if self._view_mode == "list" else t("mini_mode_list"))
+        self.cycle_btn.setToolTip(t("mini_cycle_view"))
+        self.view_menu_btn.setToolTip(t("mini_select_view"))
+        self._rebuild_view_menu()
+
+    def _rebuild_view_menu(self):
+        self.view_menu.clear()
+        labels = {
+            "tasks": t("mini_view_tasks"),
+            "quick": t("mini_view_quick"),
+            "kanban": t("mini_view_kanban"),
+        }
+        for view in self._visible_views:
+            action = QAction(labels.get(view, view), self)
+            action.setCheckable(True)
+            action.setChecked(view == self._view_mode)
+            action.triggered.connect(lambda checked=False, v=view: self.set_view_mode(v))
+            self.view_menu.addAction(action)
 
     def set_view_mode(self, mode: str):
-        if mode not in ("list", "kanban"):
+        if mode not in self._visible_views:
             return
         self._view_mode = mode
         self._update_mode_button_text()
+        self.view_mode_changed.emit(self._view_mode)
         self.refresh()
+
+    def set_visible_views(self, views):
+        self._visible_views = self._normalize_visible_views(views)
+        if self._view_mode not in self._visible_views:
+            self._view_mode = self._visible_views[0]
+            self.view_mode_changed.emit(self._view_mode)
+        self._update_mode_button_text()
+        self.refresh()
+
+    def retranslate(self):
+        """Update labels after language changes."""
+        self.setWindowTitle("Todo")
+        self.title_label.setText(t("mini_title"))
+        self._update_mode_button_text()
 
     def set_opacity(self, opacity):
         """Set opacity externally (from settings)."""

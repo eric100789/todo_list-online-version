@@ -22,6 +22,7 @@ echo.
 
 pyinstaller --noconfirm --onefile --windowed ^
     --name "TodoList" ^
+    --icon "fish.ico" ^
     --hidden-import PyQt6 ^
     --hidden-import PyQt6.sip ^
     --hidden-import PyQt6.QtWidgets ^

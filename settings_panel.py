@@ -62,6 +62,7 @@ class SettingsPanel(QWidget):
     language_changed = pyqtSignal(str)
     theme_changed = pyqtSignal(str)
     kanban_min_width_changed = pyqtSignal(int)
+    mini_views_changed = pyqtSignal(list)
 
     MINI_DEFAULT_W = 200
     MINI_DEFAULT_H = 380
@@ -282,6 +283,31 @@ class SettingsPanel(QWidget):
 
         self._add_separator(layout)
 
+        # --- Mini Window Content ---
+        self.mini_views_label = QLabel(t("mini_views_title"))
+        self.mini_views_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        layout.addWidget(self.mini_views_label)
+
+        mini_views_row = QHBoxLayout()
+        mini_views_row.setSpacing(12)
+
+        self.mini_view_tasks_check = QCheckBox(t("mini_view_tasks"))
+        self.mini_view_quick_check = QCheckBox(t("mini_view_quick"))
+        self.mini_view_kanban_check = QCheckBox(t("mini_view_kanban"))
+        for check in (self.mini_view_tasks_check, self.mini_view_quick_check, self.mini_view_kanban_check):
+            check.setFont(QFont("Segoe UI", 13))
+            check.stateChanged.connect(self._on_mini_views_changed)
+            mini_views_row.addWidget(check)
+
+        mini_views_row.addStretch()
+        layout.addLayout(mini_views_row)
+
+        self._mini_view_checks = {
+            "tasks": self.mini_view_tasks_check,
+            "quick": self.mini_view_quick_check,
+            "kanban": self.mini_view_kanban_check,
+        }
+
         # --- Mini Mode ---
         self.mini_btn = QPushButton(t("mini_mode_btn"))
         self.mini_btn.setMinimumHeight(44)
@@ -328,6 +354,10 @@ class SettingsPanel(QWidget):
         self.kanban_title_label.setText(t("kanban_settings_title"))
         self.kanban_min_width_label.setText(t("kanban_min_width"))
         self.kanban_width_reset_btn.setText(t("reset_default"))
+        self.mini_views_label.setText(t("mini_views_title"))
+        self.mini_view_tasks_check.setText(t("mini_view_tasks"))
+        self.mini_view_quick_check.setText(t("mini_view_quick"))
+        self.mini_view_kanban_check.setText(t("mini_view_kanban"))
         # Update theme combo text
         self.theme_combo.blockSignals(True)
         cur_idx = self.theme_combo.currentIndex()
@@ -352,3 +382,31 @@ class SettingsPanel(QWidget):
 
     def _reset_kanban_width(self):
         self.kanban_min_width_spin.setValue(self.KANBAN_MIN_COL_DEFAULT)
+
+    def _on_mini_views_changed(self, *args):
+        enabled = self.get_mini_visible_views()
+        if not enabled:
+            self.mini_view_tasks_check.blockSignals(True)
+            self.mini_view_tasks_check.setChecked(True)
+            self.mini_view_tasks_check.blockSignals(False)
+            enabled = ["tasks"]
+        self.mini_views_changed.emit(enabled)
+
+    def get_mini_visible_views(self) -> list[str]:
+        views = []
+        if self.mini_view_tasks_check.isChecked():
+            views.append("tasks")
+        if self.mini_view_quick_check.isChecked():
+            views.append("quick")
+        if self.mini_view_kanban_check.isChecked():
+            views.append("kanban")
+        return views
+
+    def set_mini_visible_views(self, views: list[str]):
+        normalized = set(views or [])
+        if not normalized:
+            normalized = {"tasks"}
+        for key, check in self._mini_view_checks.items():
+            check.blockSignals(True)
+            check.setChecked(key in normalized)
+            check.blockSignals(False)

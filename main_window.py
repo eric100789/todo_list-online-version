@@ -7,10 +7,10 @@ import sys
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QStackedWidget, QFrame, QSizePolicy,
-    QMessageBox
+    QMessageBox, QToolButton, QMenu
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QFont, QCursor, QIcon
+from PyQt6.QtGui import QFont, QCursor, QIcon, QAction
 
 from styles import COLORS, build_main_stylesheet, set_theme, get_theme
 from database import (
@@ -69,7 +69,8 @@ class MainWindow(QMainWindow):
         self._on_top = prefs.get("on_top", False)
         self._mini_w = prefs.get("mini_width", 200)
         self._mini_h = prefs.get("mini_height", 380)
-        self._mini_view_mode = prefs.get("mini_view_mode", "list")
+        self._mini_view_mode = self._normalize_mini_view_mode(prefs.get("mini_view_mode", "tasks"))
+        self._mini_visible_views = self._normalize_mini_visible_views(prefs.get("mini_visible_views", ["tasks", "kanban"]))
         self._kanban_min_col_width = prefs.get("kanban_min_col_width", 260)
         self._kanban_show_quick = prefs.get("kanban_show_quick", False)
 
@@ -91,6 +92,19 @@ class MainWindow(QMainWindow):
         self.refresh_tasks()
         self.refresh_quick()
         self.refresh_kanban()
+        self._update_header_navigation_mode()
+
+    def _normalize_mini_view_mode(self, mode: str) -> str:
+        mapping = {"list": "tasks", "task": "tasks", "tasks": "tasks", "quick": "quick", "kanban": "kanban"}
+        return mapping.get(mode, "tasks")
+
+    def _normalize_mini_visible_views(self, views) -> list[str]:
+        normalized = []
+        for view in views or ["tasks", "kanban"]:
+            view = self._normalize_mini_view_mode(view)
+            if view not in normalized:
+                normalized.append(view)
+        return normalized or ["tasks"]
 
     def _build_ui(self):
         central = QWidget()
@@ -101,22 +115,23 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         # Top header bar
-        header = QFrame()
+        self.header = QFrame()
+        header = self.header
         header.setStyleSheet(f"""
             QFrame {{
                 background-color: {COLORS['surface']};
                 border-bottom: 1px solid {COLORS['border']};
             }}
         """)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 14, 20, 14)
-        header_layout.setSpacing(12)
+        self.header_layout = QHBoxLayout(header)
+        self.header_layout.setContentsMargins(20, 14, 20, 14)
+        self.header_layout.setSpacing(12)
 
         self.app_title = QLabel(t("app_title"))
         self.app_title.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
-        header_layout.addWidget(self.app_title)
+        self.header_layout.addWidget(self.app_title)
 
-        header_layout.addStretch()
+        self.header_layout.addStretch()
 
         # Navigation buttons
         self.nav_tasks_btn = QPushButton(t("nav_tasks"))
@@ -124,35 +139,62 @@ class MainWindow(QMainWindow):
         self.nav_tasks_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_tasks_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.nav_tasks_btn.clicked.connect(lambda: self._switch_view(0))
-        header_layout.addWidget(self.nav_tasks_btn)
-
-        self.nav_kanban_btn = QPushButton(t("nav_kanban"))
-        self.nav_kanban_btn.setObjectName("navBtn")
-        self.nav_kanban_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
-        self.nav_kanban_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.nav_kanban_btn.clicked.connect(lambda: self._switch_view(2))
-        header_layout.addWidget(self.nav_kanban_btn)
+        self.header_layout.addWidget(self.nav_tasks_btn)
 
         self.nav_quick_btn = QPushButton(t("nav_quick"))
         self.nav_quick_btn.setObjectName("navBtn")
         self.nav_quick_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_quick_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.nav_quick_btn.clicked.connect(lambda: self._switch_view(1))
-        header_layout.addWidget(self.nav_quick_btn)
+        self.header_layout.addWidget(self.nav_quick_btn)
+
+        self.nav_kanban_btn = QPushButton(t("nav_kanban"))
+        self.nav_kanban_btn.setObjectName("navBtn")
+        self.nav_kanban_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
+        self.nav_kanban_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.nav_kanban_btn.clicked.connect(lambda: self._switch_view(2))
+        self.header_layout.addWidget(self.nav_kanban_btn)
 
         self.nav_history_btn = QPushButton(t("nav_history"))
         self.nav_history_btn.setObjectName("navBtn")
         self.nav_history_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_history_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.nav_history_btn.clicked.connect(lambda: self._switch_view(3))
-        header_layout.addWidget(self.nav_history_btn)
+        self.header_layout.addWidget(self.nav_history_btn)
 
         self.nav_notes_btn = QPushButton(t("nav_notes"))
         self.nav_notes_btn.setObjectName("navBtn")
         self.nav_notes_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         self.nav_notes_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.nav_notes_btn.clicked.connect(lambda: self._switch_view(4))
-        header_layout.addWidget(self.nav_notes_btn)
+        self.header_layout.addWidget(self.nav_notes_btn)
+
+        self.nav_more_btn = QToolButton()
+        self.nav_more_btn.setText("☰")
+        self.nav_more_btn.setObjectName("navBtn")
+        self.nav_more_btn.setFont(QFont("Segoe UI", 16))
+        self.nav_more_btn.setFixedSize(40, 40)
+        self.nav_more_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.nav_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.nav_more_btn.setToolTip(t("nav_more"))
+        self.nav_more_btn.setStyleSheet(f"""
+            QToolButton {{
+                background-color: transparent;
+                color: {COLORS['text_secondary']};
+                border: none;
+                border-radius: 8px;
+                padding: 8px 10px;
+            }}
+            QToolButton:hover {{
+                background-color: {COLORS['surface_hover']};
+                color: {COLORS['text']};
+            }}
+        """)
+        self.nav_menu = QMenu(self)
+        self.nav_actions = {}
+        self.nav_more_btn.setMenu(self.nav_menu)
+        self._build_nav_menu()
+        self.header_layout.addWidget(self.nav_more_btn)
 
         self.nav_settings_btn = QPushButton("⚙")
         self.nav_settings_btn.setObjectName("navBtn")
@@ -160,7 +202,7 @@ class MainWindow(QMainWindow):
         self.nav_settings_btn.setFixedSize(40, 40)
         self.nav_settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.nav_settings_btn.clicked.connect(lambda: self._switch_view(5))
-        header_layout.addWidget(self.nav_settings_btn)
+        self.header_layout.addWidget(self.nav_settings_btn)
 
         main_layout.addWidget(header)
 
@@ -249,6 +291,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.mini_size_changed.connect(self._on_mini_size_changed)
         self.settings_panel.kanban_min_width_changed.connect(self._on_kanban_min_width_changed)
+        self.settings_panel.mini_views_changed.connect(self._on_mini_views_changed)
 
         # Sync settings panel to current state
         self.settings_panel.opacity_slider.setValue(int(self._opacity * 100))
@@ -256,6 +299,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.mini_width_spin.setValue(self._mini_w)
         self.settings_panel.mini_height_spin.setValue(self._mini_h)
         self.settings_panel.set_kanban_layout(self._kanban_min_col_width)
+        self.settings_panel.set_mini_visible_views(self._mini_visible_views)
 
         self.settings_scroll = QScrollArea()
         self.settings_scroll.setWidgetResizable(True)
@@ -270,10 +314,51 @@ class MainWindow(QMainWindow):
 
         self._update_nav_style(0)
 
+    def _build_nav_menu(self):
+        self.nav_menu.clear()
+        self.nav_actions.clear()
+        items = [
+            (0, t("nav_tasks")),
+            (1, t("nav_quick")),
+            (2, t("nav_kanban")),
+            (3, t("nav_history")),
+            (4, t("nav_notes")),
+            (5, t("settings_title")),
+        ]
+        for index, label in items:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, i=index: self._switch_view(i))
+            self.nav_menu.addAction(action)
+            self.nav_actions[index] = action
+
+    def _sync_nav_menu_state(self, active_index: int):
+        for index, action in self.nav_actions.items():
+            action.setChecked(index == active_index)
+
+    def _update_header_navigation_mode(self):
+        if not hasattr(self, "header"):
+            return
+        nav_buttons = [self.nav_tasks_btn, self.nav_quick_btn, self.nav_kanban_btn, self.nav_history_btn, self.nav_notes_btn]
+        available = max(0, self.header.width() - self.header_layout.contentsMargins().left() - self.header_layout.contentsMargins().right())
+        title_width = self.app_title.sizeHint().width()
+        fixed_width = self.nav_more_btn.sizeHint().width() + self.nav_settings_btn.sizeHint().width() + 80
+        nav_width = sum(btn.sizeHint().width() for btn in nav_buttons) + self.header_layout.spacing() * (len(nav_buttons) - 1)
+        collapse = available < (title_width + fixed_width + nav_width)
+
+        for btn in nav_buttons:
+            btn.setVisible(not collapse)
+        self.nav_more_btn.setVisible(collapse)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_header_navigation_mode()
+
     def _switch_view(self, index):
         self._current_view = index
         self.stack.setCurrentIndex(index)
         self._update_nav_style(index)
+        self._sync_nav_menu_state(index)
         if index == 0:
             self.refresh_tasks()
         elif index == 1:
@@ -466,6 +551,15 @@ class MainWindow(QMainWindow):
         self._save_current_prefs()
         self.refresh_kanban()
 
+    def _on_mini_views_changed(self, views: list[str]):
+        self._mini_visible_views = self._normalize_mini_visible_views(views)
+        if self._mini_view_mode not in self._mini_visible_views:
+            self._mini_view_mode = self._mini_visible_views[0]
+        self._save_current_prefs()
+        if self.mini_window:
+            self.mini_window.set_visible_views(self._mini_visible_views)
+            self.mini_window.set_view_mode(self._mini_view_mode)
+
     def _add_category(self):
         dlg = CategoryDialog(self)
         if dlg.exec() and dlg.result_data:
@@ -538,6 +632,7 @@ class MainWindow(QMainWindow):
                 opacity=self._opacity, on_top=self._on_top,
                 width=self._mini_w, height=self._mini_h,
                 view_mode=self._mini_view_mode,
+                visible_views=self._mini_visible_views,
             )
             self.mini_window.restore_requested.connect(self._exit_mini_mode)
             self.mini_window.view_mode_changed.connect(self._on_mini_view_mode_changed)
@@ -545,6 +640,7 @@ class MainWindow(QMainWindow):
             self.mini_window.set_opacity(self._opacity)
             self.mini_window.set_on_top(self._on_top)
             self.mini_window.set_size(self._mini_w, self._mini_h)
+            self.mini_window.set_visible_views(self._mini_visible_views)
             self.mini_window.set_view_mode(self._mini_view_mode)
         self.mini_window.refresh()
         self.mini_window.show()
@@ -564,7 +660,7 @@ class MainWindow(QMainWindow):
             self.mini_window.set_size(w, h)
 
     def _on_mini_view_mode_changed(self, mode: str):
-        self._mini_view_mode = mode
+        self._mini_view_mode = self._normalize_mini_view_mode(mode)
         self._save_current_prefs()
 
     # --- Theme / Language ---
@@ -596,6 +692,8 @@ class MainWindow(QMainWindow):
         self.nav_kanban_btn.setText(t("nav_kanban"))
         self.nav_history_btn.setText(t("nav_history"))
         self.nav_notes_btn.setText(t("nav_notes"))
+        self.nav_more_btn.setText("☰")
+        self.nav_more_btn.setToolTip(t("nav_more"))
         self.add_btn.setText(t("add_task"))
 
         # Update sub-panels
@@ -604,9 +702,14 @@ class MainWindow(QMainWindow):
         self.notes_view.retranslate()
         self.quick_view.retranslate()
         self.kanban_view.retranslate()
+        if self.mini_window:
+            self.mini_window.retranslate()
+        self._build_nav_menu()
 
         # Update nav style
         self._update_nav_style(view_idx)
+        self._sync_nav_menu_state(view_idx)
+        self._update_header_navigation_mode()
 
         # Refresh content
         self.refresh_tasks()
@@ -630,6 +733,7 @@ class MainWindow(QMainWindow):
             "mini_width": self._mini_w,
             "mini_height": self._mini_h,
             "mini_view_mode": self._mini_view_mode,
+            "mini_visible_views": self._mini_visible_views,
             "kanban_min_col_width": self._kanban_min_col_width,
             "kanban_show_quick": self._kanban_show_quick,
         })
