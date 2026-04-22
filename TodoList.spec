@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=['PyQt6', 'PyQt6.sip', 'PyQt6.QtWidgets', 'PyQt6.QtCore', 'PyQt6.QtGui', 'i18n', 'styles', 'database', 'date_utils', 'task_card', 'dialogs', 'history_view', 'settings_panel', 'mini_mode', 'main_window', 'notes_view', 'pkgutil'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -35,5 +35,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['fish.ico'],
 )

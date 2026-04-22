@@ -23,6 +23,7 @@ echo.
 pyinstaller --noconfirm --onefile --windowed ^
     --name "TodoList" ^
     --hidden-import PyQt6 ^
+    --hidden-import PyQt6.sip ^
     --hidden-import PyQt6.QtWidgets ^
     --hidden-import PyQt6.QtCore ^
     --hidden-import PyQt6.QtGui ^
@@ -37,6 +38,7 @@ pyinstaller --noconfirm --onefile --windowed ^
     --hidden-import mini_mode ^
     --hidden-import main_window ^
     --hidden-import notes_view ^
+    --hidden-import pkgutil ^
     main.py
 
 if errorlevel 1 (
