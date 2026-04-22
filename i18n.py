@@ -12,6 +12,7 @@ STRINGS = {
     "nav_kanban": {"en": "Kanban", "zh_tw": "看板"},
     "nav_history": {"en": "History", "zh_tw": "歷史"},
     "nav_notes": {"en": "Notes", "zh_tw": "記事"},
+    "nav_more": {"en": "Menu", "zh_tw": "選單"},
 
     # Task list
     "task_count": {"en": "{n} Task{s}", "zh_tw": "{n} 個任務"},
@@ -22,6 +23,14 @@ STRINGS = {
     "quick_title": {"en": "⚡ Quick", "zh_tw": "⚡ 快速"},
     "quick_empty": {"en": "No quick items yet. Add one for sudden ideas.", "zh_tw": "目前沒有快速項目，想到就新增一張吧！"},
     "quick_reflow": {"en": "Reflow", "zh_tw": "重新整理"},
+
+    # Mini mode views
+    "mini_views_title": {"en": "Mini Window Content", "zh_tw": "迷你視窗顯示內容"},
+    "mini_view_tasks": {"en": "Tasks", "zh_tw": "任務"},
+    "mini_view_quick": {"en": "Quick", "zh_tw": "快速"},
+    "mini_view_kanban": {"en": "Kanban", "zh_tw": "看板"},
+    "mini_cycle_view": {"en": "Switch content", "zh_tw": "切換顯示內容"},
+    "mini_select_view": {"en": "Choose content", "zh_tw": "選擇顯示內容"},
 
     # Task card
     "no_due_date": {"en": "No due date", "zh_tw": "無截止日期"},
