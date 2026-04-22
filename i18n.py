@@ -8,6 +8,7 @@ STRINGS = {
 
     # Navigation
     "nav_tasks": {"en": "Tasks", "zh_tw": "任務"},
+    "nav_quick": {"en": "Quick", "zh_tw": "快速"},
     "nav_kanban": {"en": "Kanban", "zh_tw": "看板"},
     "nav_history": {"en": "History", "zh_tw": "歷史"},
     "nav_notes": {"en": "Notes", "zh_tw": "記事"},
@@ -15,8 +16,12 @@ STRINGS = {
     # Task list
     "task_count": {"en": "{n} Task{s}", "zh_tw": "{n} 個任務"},
     "add_task": {"en": "+ Add Task", "zh_tw": "+ 新增任務"},
+    "add_quick": {"en": "+ Add Quick", "zh_tw": "+ 新增快速"},
     "no_tasks": {"en": "No tasks yet. Click '+ Add Task' to get started!", "zh_tw": "目前沒有任務，點擊「+ 新增任務」開始吧！"},
     "all_done": {"en": "All done! 🎉", "zh_tw": "全部完成！🎉"},
+    "quick_title": {"en": "⚡ Quick", "zh_tw": "⚡ 快速"},
+    "quick_empty": {"en": "No quick items yet. Add one for sudden ideas.", "zh_tw": "目前沒有快速項目，想到就新增一張吧！"},
+    "quick_reflow": {"en": "Reflow", "zh_tw": "重新整理"},
 
     # Task card
     "no_due_date": {"en": "No due date", "zh_tw": "無截止日期"},
@@ -29,6 +34,8 @@ STRINGS = {
     # Dialog - Add/Edit
     "new_task": {"en": "New Task", "zh_tw": "新增任務"},
     "edit_task": {"en": "Edit Task", "zh_tw": "編輯任務"},
+    "new_quick": {"en": "New Quick", "zh_tw": "新增快速"},
+    "edit_quick": {"en": "Edit Quick", "zh_tw": "編輯快速"},
     "title_required": {"en": "Title *", "zh_tw": "標題 *"},
     "title_placeholder": {"en": "Enter task title...", "zh_tw": "輸入任務標題…"},
     "description": {"en": "Description", "zh_tw": "描述"},
@@ -46,6 +53,8 @@ STRINGS = {
 
     # Kanban
     "kanban_add_category": {"en": "+ Add Category", "zh_tw": "+ 新增分類"},
+    "kanban_show_quick": {"en": "Show Quick", "zh_tw": "顯示快速"},
+    "kanban_quick_column": {"en": "Quick", "zh_tw": "快速"},
     "kanban_uncategorized": {"en": "Uncategorized", "zh_tw": "未分類"},
     "kanban_new_category": {"en": "New Category", "zh_tw": "新增分類"},
     "kanban_edit_category": {"en": "Edit Category", "zh_tw": "編輯分類"},

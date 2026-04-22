@@ -66,13 +66,17 @@ class DatePickerDialog(QDialog):
 class TaskDialog(QDialog):
     """Modal dialog for adding or editing a task."""
 
-    def __init__(self, parent=None, task=None, default_category_id=None):
+    def __init__(self, parent=None, task=None, default_category_id=None, task_kind: str = "task"):
         super().__init__(parent)
         self.task = task
+        self.task_kind = task_kind if task_kind in ("task", "quick") else "task"
         self.result_data = None
         self._selected_color = ""
         self._default_category_id = default_category_id
-        self.setWindowTitle(t("edit_task") if task else t("new_task"))
+        title_key = "edit_quick" if (task and self.task_kind == "quick") else "edit_task"
+        if not task:
+            title_key = "new_quick" if self.task_kind == "quick" else "new_task"
+        self.setWindowTitle(t(title_key))
         self.setFixedSize(440, 660)
         self.setStyleSheet(build_main_stylesheet())
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -86,7 +90,10 @@ class TaskDialog(QDialog):
         layout.setSpacing(18)
 
         # Header
-        header = QLabel(t("edit_task") if self.task else t("new_task"))
+        header_key = "edit_quick" if (self.task and self.task_kind == "quick") else "edit_task"
+        if not self.task:
+            header_key = "new_quick" if self.task_kind == "quick" else "new_task"
+        header = QLabel(t(header_key))
         header.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         header.setStyleSheet(f"color: {COLORS['text']};")
         layout.addWidget(header)
@@ -214,7 +221,11 @@ class TaskDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
 
-        self.save_btn = QPushButton(t("save") if self.task else t("add_task"))
+        if self.task:
+            save_text = t("save")
+        else:
+            save_text = t("add_quick") if self.task_kind == "quick" else t("add_task")
+        self.save_btn = QPushButton(save_text)
         self.save_btn.setMinimumHeight(40)
         self.save_btn.clicked.connect(self._on_save)
         btn_layout.addWidget(self.save_btn)
@@ -283,7 +294,7 @@ class TaskDialog(QDialog):
             "description": self.desc_input.toPlainText().strip(),
             "due_date": due_date,
             "is_starred": self.star_check.isChecked(),
-            "category_id": self.task.get("category_id") if self.task else self._default_category_id,
+            "category_id": None if self.task_kind == "quick" else (self.task.get("category_id") if self.task else self._default_category_id),
             "color": self._selected_color,
         }
         self.accept()
