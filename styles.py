@@ -1,5 +1,34 @@
 """Shared styles for the Todo List application - supports dark/light themes."""
 
+
+ACCENT_PRESETS = {
+    "purple": {
+        "primary": "#7c3aed",
+        "primary_hover": "#6d28d9",
+        "checkbox": "#7c3aed",
+    },
+    "blue": {
+        "primary": "#2563eb",
+        "primary_hover": "#1d4ed8",
+        "checkbox": "#2563eb",
+    },
+    "green": {
+        "primary": "#16a34a",
+        "primary_hover": "#15803d",
+        "checkbox": "#16a34a",
+    },
+    "orange": {
+        "primary": "#ea580c",
+        "primary_hover": "#c2410c",
+        "checkbox": "#ea580c",
+    },
+    "rose": {
+        "primary": "#e11d48",
+        "primary_hover": "#be123c",
+        "checkbox": "#e11d48",
+    },
+}
+
 DARK_COLORS = {
     "bg": "#1e1e2e",
     "surface": "#2a2a3d",
@@ -44,7 +73,17 @@ LIGHT_COLORS = {
 
 # Current active color palette  (mutable dict, updated in-place)
 _current_theme = "dark"
+_current_accent = "purple"
 COLORS: dict[str, str] = dict(DARK_COLORS)
+
+
+def _apply_accent(colors: dict[str, str], accent_name: str) -> dict[str, str]:
+    accent = ACCENT_PRESETS.get(accent_name, ACCENT_PRESETS["purple"])
+    merged = dict(colors)
+    merged["primary"] = accent["primary"]
+    merged["primary_hover"] = accent["primary_hover"]
+    merged["checkbox"] = accent["checkbox"]
+    return merged
 
 
 def set_theme(theme: str):
@@ -52,12 +91,24 @@ def set_theme(theme: str):
     global _current_theme
     _current_theme = theme
     src = DARK_COLORS if theme == "dark" else LIGHT_COLORS
+    themed = _apply_accent(src, _current_accent)
     COLORS.clear()
-    COLORS.update(src)
+    COLORS.update(themed)
 
 
 def get_theme() -> str:
     return _current_theme
+
+
+def set_accent_color(accent_name: str):
+    """Switch global accent color preset."""
+    global _current_accent
+    _current_accent = accent_name if accent_name in ACCENT_PRESETS else "purple"
+    set_theme(_current_theme)
+
+
+def get_accent_color() -> str:
+    return _current_accent
 
 
 def build_main_stylesheet() -> str:
@@ -100,7 +151,7 @@ def build_main_stylesheet() -> str:
         background-color: {COLORS['primary_hover']};
     }}
     QPushButton:pressed {{
-        background-color: #5b21b6;
+        background-color: {COLORS['primary_hover']};
     }}
     QPushButton#dangerBtn {{
         background-color: {COLORS['danger']};

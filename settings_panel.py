@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
-from styles import COLORS, get_theme
+from styles import COLORS, get_theme, get_accent_color
 from i18n import t, get_language
 
 
@@ -61,8 +61,11 @@ class SettingsPanel(QWidget):
     mini_size_changed = pyqtSignal(int, int)
     language_changed = pyqtSignal(str)
     theme_changed = pyqtSignal(str)
+    accent_changed = pyqtSignal(str)
     kanban_min_width_changed = pyqtSignal(int)
     mini_views_changed = pyqtSignal(list)
+    mini_gadgets_changed = pyqtSignal(bool, bool, bool)
+    mini_clock_theme_changed = pyqtSignal(str)
 
     MINI_DEFAULT_W = 200
     MINI_DEFAULT_H = 380
@@ -167,6 +170,42 @@ class SettingsPanel(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         theme_layout.addWidget(self.theme_combo)
         layout.addLayout(theme_layout)
+
+        color_layout = QHBoxLayout()
+        color_layout.setSpacing(12)
+        self.color_label = QLabel(t("color_label"))
+        self.color_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        color_layout.addWidget(self.color_label)
+        color_layout.addStretch()
+
+        self.color_combo = QComboBox()
+        self.color_combo.addItem(t("color_purple"), "purple")
+        self.color_combo.addItem(t("color_blue"), "blue")
+        self.color_combo.addItem(t("color_green"), "green")
+        self.color_combo.addItem(t("color_orange"), "orange")
+        self.color_combo.addItem(t("color_rose"), "rose")
+        self.color_combo.setMinimumWidth(140)
+        self.color_combo.currentIndexChanged.connect(self._on_accent_changed)
+        color_layout.addWidget(self.color_combo)
+        layout.addLayout(color_layout)
+
+        clock_theme_layout = QHBoxLayout()
+        clock_theme_layout.setSpacing(12)
+        self.clock_theme_label = QLabel(t("clock_theme"))
+        self.clock_theme_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        clock_theme_layout.addWidget(self.clock_theme_label)
+        clock_theme_layout.addStretch()
+
+        self.clock_theme_combo = QComboBox()
+        self.clock_theme_combo.addItem(t("clock_theme_classic"), "classic")
+        self.clock_theme_combo.addItem(t("clock_theme_neon"), "neon")
+        self.clock_theme_combo.addItem(t("clock_theme_minimal"), "minimal")
+        self.clock_theme_combo.setMinimumWidth(140)
+        self.clock_theme_combo.currentIndexChanged.connect(self._on_clock_theme_changed)
+        clock_theme_layout.addWidget(self.clock_theme_combo)
+        layout.addLayout(clock_theme_layout)
+
+        self.set_accent(get_accent_color())
 
         self._add_separator(layout)
 
@@ -294,7 +333,8 @@ class SettingsPanel(QWidget):
         self.mini_view_tasks_check = QCheckBox(t("mini_view_tasks"))
         self.mini_view_quick_check = QCheckBox(t("mini_view_quick"))
         self.mini_view_kanban_check = QCheckBox(t("mini_view_kanban"))
-        for check in (self.mini_view_tasks_check, self.mini_view_quick_check, self.mini_view_kanban_check):
+        self.mini_view_clock_check = QCheckBox(t("mini_view_clock"))
+        for check in (self.mini_view_tasks_check, self.mini_view_quick_check, self.mini_view_kanban_check, self.mini_view_clock_check):
             check.setFont(QFont("Segoe UI", 13))
             check.stateChanged.connect(self._on_mini_views_changed)
             mini_views_row.addWidget(check)
@@ -306,7 +346,29 @@ class SettingsPanel(QWidget):
             "tasks": self.mini_view_tasks_check,
             "quick": self.mini_view_quick_check,
             "kanban": self.mini_view_kanban_check,
+            "clock": self.mini_view_clock_check,
         }
+
+        self._add_separator(layout)
+
+        # --- Mini Gadgets ---
+        self.mini_gadgets_label = QLabel(t("mini_gadgets_title"))
+        self.mini_gadgets_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        layout.addWidget(self.mini_gadgets_label)
+
+        mini_gadgets_row = QHBoxLayout()
+        mini_gadgets_row.setSpacing(12)
+
+        self.mini_gadgets_enable_check = QCheckBox(t("mini_gadgets_enable"))
+        self.mini_gadget_clock_check = QCheckBox(t("mini_gadget_clock"))
+        self.mini_gadget_digital_check = QCheckBox(t("mini_gadget_digital"))
+        for check in (self.mini_gadgets_enable_check, self.mini_gadget_clock_check, self.mini_gadget_digital_check):
+            check.setFont(QFont("Segoe UI", 13))
+            check.stateChanged.connect(self._on_mini_gadgets_changed)
+            mini_gadgets_row.addWidget(check)
+
+        mini_gadgets_row.addStretch()
+        layout.addLayout(mini_gadgets_row)
 
         # --- Mini Mode ---
         self.mini_btn = QPushButton(t("mini_mode_btn"))
@@ -338,11 +400,23 @@ class SettingsPanel(QWidget):
         if theme:
             self.theme_changed.emit(theme)
 
+    def _on_accent_changed(self, index):
+        accent = self.color_combo.itemData(index)
+        if accent:
+            self.accent_changed.emit(accent)
+
+    def _on_clock_theme_changed(self, index):
+        theme = self.clock_theme_combo.itemData(index)
+        if theme:
+            self.mini_clock_theme_changed.emit(theme)
+
     def retranslate(self):
         """Update all labels after language change."""
         self.section_label.setText(t("settings_title"))
         self.lang_label.setText(t("language_label"))
         self.theme_label.setText(t("theme_label"))
+        self.color_label.setText(t("color_label"))
+        self.clock_theme_label.setText(t("clock_theme"))
         self.trans_label.setText(t("window_opacity"))
         self.on_top_check.setText(t("always_on_top"))
         self.startup_check.setText(t("auto_startup"))
@@ -358,6 +432,11 @@ class SettingsPanel(QWidget):
         self.mini_view_tasks_check.setText(t("mini_view_tasks"))
         self.mini_view_quick_check.setText(t("mini_view_quick"))
         self.mini_view_kanban_check.setText(t("mini_view_kanban"))
+        self.mini_view_clock_check.setText(t("mini_view_clock"))
+        self.mini_gadgets_label.setText(t("mini_gadgets_title"))
+        self.mini_gadgets_enable_check.setText(t("mini_gadgets_enable"))
+        self.mini_gadget_clock_check.setText(t("mini_gadget_clock"))
+        self.mini_gadget_digital_check.setText(t("mini_gadget_digital"))
         # Update theme combo text
         self.theme_combo.blockSignals(True)
         cur_idx = self.theme_combo.currentIndex()
@@ -365,6 +444,24 @@ class SettingsPanel(QWidget):
         self.theme_combo.setItemText(1, t("theme_light"))
         self.theme_combo.setCurrentIndex(cur_idx)
         self.theme_combo.blockSignals(False)
+
+        self.color_combo.blockSignals(True)
+        color_idx = self.color_combo.currentIndex()
+        self.color_combo.setItemText(0, t("color_purple"))
+        self.color_combo.setItemText(1, t("color_blue"))
+        self.color_combo.setItemText(2, t("color_green"))
+        self.color_combo.setItemText(3, t("color_orange"))
+        self.color_combo.setItemText(4, t("color_rose"))
+        self.color_combo.setCurrentIndex(color_idx)
+        self.color_combo.blockSignals(False)
+
+        self.clock_theme_combo.blockSignals(True)
+        clock_idx = self.clock_theme_combo.currentIndex()
+        self.clock_theme_combo.setItemText(0, t("clock_theme_classic"))
+        self.clock_theme_combo.setItemText(1, t("clock_theme_neon"))
+        self.clock_theme_combo.setItemText(2, t("clock_theme_minimal"))
+        self.clock_theme_combo.setCurrentIndex(clock_idx)
+        self.clock_theme_combo.blockSignals(False)
 
     def _on_mini_size_changed(self):
         w = self.mini_width_spin.value()
@@ -400,6 +497,8 @@ class SettingsPanel(QWidget):
             views.append("quick")
         if self.mini_view_kanban_check.isChecked():
             views.append("kanban")
+        if self.mini_view_clock_check.isChecked():
+            views.append("clock")
         return views
 
     def set_mini_visible_views(self, views: list[str]):
@@ -410,3 +509,41 @@ class SettingsPanel(QWidget):
             check.blockSignals(True)
             check.setChecked(key in normalized)
             check.blockSignals(False)
+
+    def _on_mini_gadgets_changed(self, *args):
+        enabled = self.mini_gadgets_enable_check.isChecked()
+        show_clock = self.mini_gadget_clock_check.isChecked()
+        show_digital = self.mini_gadget_digital_check.isChecked()
+        if enabled and not (show_clock or show_digital):
+            self.mini_gadget_clock_check.blockSignals(True)
+            self.mini_gadget_clock_check.setChecked(True)
+            self.mini_gadget_clock_check.blockSignals(False)
+            show_clock = True
+        self.mini_gadgets_changed.emit(enabled, show_clock, show_digital)
+
+    def set_mini_gadgets(self, enabled: bool, show_clock: bool, show_digital: bool):
+        self.mini_gadgets_enable_check.blockSignals(True)
+        self.mini_gadget_clock_check.blockSignals(True)
+        self.mini_gadget_digital_check.blockSignals(True)
+        self.mini_gadgets_enable_check.setChecked(bool(enabled))
+        self.mini_gadget_clock_check.setChecked(bool(show_clock))
+        self.mini_gadget_digital_check.setChecked(bool(show_digital))
+        self.mini_gadgets_enable_check.blockSignals(False)
+        self.mini_gadget_clock_check.blockSignals(False)
+        self.mini_gadget_digital_check.blockSignals(False)
+
+    def set_clock_theme(self, clock_theme: str):
+        idx = self.clock_theme_combo.findData(clock_theme)
+        if idx < 0:
+            idx = 0
+        self.clock_theme_combo.blockSignals(True)
+        self.clock_theme_combo.setCurrentIndex(idx)
+        self.clock_theme_combo.blockSignals(False)
+
+    def set_accent(self, accent: str):
+        idx = self.color_combo.findData(accent)
+        if idx < 0:
+            idx = 0
+        self.color_combo.blockSignals(True)
+        self.color_combo.setCurrentIndex(idx)
+        self.color_combo.blockSignals(False)

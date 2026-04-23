@@ -12,7 +12,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QCursor, QIcon, QAction
 
-from styles import COLORS, build_main_stylesheet, set_theme, get_theme
+from styles import (
+    COLORS,
+    build_main_stylesheet,
+    set_theme,
+    get_theme,
+    set_accent_color,
+    get_accent_color,
+)
 from database import (
     get_active_tasks, complete_task, delete_task, toggle_star,
     add_task, update_task, get_task_by_id,
@@ -65,17 +72,23 @@ class MainWindow(QMainWindow):
         prefs = load_prefs()
         lang = prefs.get("language", "zh_tw")
         theme = prefs.get("theme", "dark")
+        accent = prefs.get("accent", "purple")
         self._opacity = prefs.get("opacity", 1.0)
         self._on_top = prefs.get("on_top", False)
         self._mini_w = prefs.get("mini_width", 200)
         self._mini_h = prefs.get("mini_height", 380)
         self._mini_view_mode = self._normalize_mini_view_mode(prefs.get("mini_view_mode", "tasks"))
         self._mini_visible_views = self._normalize_mini_visible_views(prefs.get("mini_visible_views", ["tasks", "kanban"]))
+        self._mini_show_gadgets = bool(prefs.get("mini_show_gadgets", False))
+        self._mini_gadget_clock = bool(prefs.get("mini_gadget_clock", True))
+        self._mini_gadget_digital = bool(prefs.get("mini_gadget_digital", True))
+        self._mini_clock_theme = prefs.get("mini_clock_theme", "classic")
         self._kanban_min_col_width = prefs.get("kanban_min_col_width", 260)
         self._kanban_show_quick = prefs.get("kanban_show_quick", False)
 
         set_language(lang)
         set_theme(theme)
+        set_accent_color(accent)
 
         self.setWindowTitle(t("app_title"))
         self.setMinimumSize(520, 640)
@@ -95,7 +108,15 @@ class MainWindow(QMainWindow):
         self._update_header_navigation_mode()
 
     def _normalize_mini_view_mode(self, mode: str) -> str:
-        mapping = {"list": "tasks", "task": "tasks", "tasks": "tasks", "quick": "quick", "kanban": "kanban"}
+        mapping = {
+            "list": "tasks",
+            "task": "tasks",
+            "tasks": "tasks",
+            "quick": "quick",
+            "kanban": "kanban",
+            "clock": "clock",
+            "big_clock": "clock",
+        }
         return mapping.get(mode, "tasks")
 
     def _normalize_mini_visible_views(self, views) -> list[str]:
@@ -289,9 +310,12 @@ class MainWindow(QMainWindow):
         self.settings_panel.mini_mode_requested.connect(self._enter_mini_mode)
         self.settings_panel.language_changed.connect(self._on_language_changed)
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
+        self.settings_panel.accent_changed.connect(self._on_accent_changed)
         self.settings_panel.mini_size_changed.connect(self._on_mini_size_changed)
         self.settings_panel.kanban_min_width_changed.connect(self._on_kanban_min_width_changed)
         self.settings_panel.mini_views_changed.connect(self._on_mini_views_changed)
+        self.settings_panel.mini_gadgets_changed.connect(self._on_mini_gadgets_changed)
+        self.settings_panel.mini_clock_theme_changed.connect(self._on_mini_clock_theme_changed)
 
         # Sync settings panel to current state
         self.settings_panel.opacity_slider.setValue(int(self._opacity * 100))
@@ -300,6 +324,13 @@ class MainWindow(QMainWindow):
         self.settings_panel.mini_height_spin.setValue(self._mini_h)
         self.settings_panel.set_kanban_layout(self._kanban_min_col_width)
         self.settings_panel.set_mini_visible_views(self._mini_visible_views)
+        self.settings_panel.set_mini_gadgets(
+            self._mini_show_gadgets,
+            self._mini_gadget_clock,
+            self._mini_gadget_digital,
+        )
+        self.settings_panel.set_clock_theme(self._mini_clock_theme)
+        self.settings_panel.set_accent(get_accent_color())
 
         self.settings_scroll = QScrollArea()
         self.settings_scroll.setWidgetResizable(True)
@@ -560,6 +591,26 @@ class MainWindow(QMainWindow):
             self.mini_window.set_visible_views(self._mini_visible_views)
             self.mini_window.set_view_mode(self._mini_view_mode)
 
+    def _on_mini_gadgets_changed(self, enabled: bool, show_clock: bool, show_digital: bool):
+        self._mini_show_gadgets = bool(enabled)
+        self._mini_gadget_clock = bool(show_clock)
+        self._mini_gadget_digital = bool(show_digital)
+        if self._mini_show_gadgets and not (self._mini_gadget_clock or self._mini_gadget_digital):
+            self._mini_gadget_clock = True
+        self._save_current_prefs()
+        if self.mini_window:
+            self.mini_window.set_gadget_settings(
+                self._mini_show_gadgets,
+                self._mini_gadget_clock,
+                self._mini_gadget_digital,
+            )
+
+    def _on_mini_clock_theme_changed(self, clock_theme: str):
+        self._mini_clock_theme = clock_theme
+        self._save_current_prefs()
+        if self.mini_window:
+            self.mini_window.set_clock_theme(self._mini_clock_theme)
+
     def _add_category(self):
         dlg = CategoryDialog(self)
         if dlg.exec() and dlg.result_data:
@@ -633,6 +684,10 @@ class MainWindow(QMainWindow):
                 width=self._mini_w, height=self._mini_h,
                 view_mode=self._mini_view_mode,
                 visible_views=self._mini_visible_views,
+                show_gadgets=self._mini_show_gadgets,
+                show_gadget_clock=self._mini_gadget_clock,
+                show_gadget_digital=self._mini_gadget_digital,
+                clock_theme=self._mini_clock_theme,
             )
             self.mini_window.restore_requested.connect(self._exit_mini_mode)
             self.mini_window.view_mode_changed.connect(self._on_mini_view_mode_changed)
@@ -641,6 +696,12 @@ class MainWindow(QMainWindow):
             self.mini_window.set_on_top(self._on_top)
             self.mini_window.set_size(self._mini_w, self._mini_h)
             self.mini_window.set_visible_views(self._mini_visible_views)
+            self.mini_window.set_gadget_settings(
+                self._mini_show_gadgets,
+                self._mini_gadget_clock,
+                self._mini_gadget_digital,
+            )
+            self.mini_window.set_clock_theme(self._mini_clock_theme)
             self.mini_window.set_view_mode(self._mini_view_mode)
         self.mini_window.refresh()
         self.mini_window.show()
@@ -671,6 +732,11 @@ class MainWindow(QMainWindow):
 
     def _on_theme_changed(self, theme):
         set_theme(theme)
+        self._save_current_prefs()
+        self._rebuild_ui()
+
+    def _on_accent_changed(self, accent: str):
+        set_accent_color(accent)
         self._save_current_prefs()
         self._rebuild_ui()
 
@@ -728,12 +794,17 @@ class MainWindow(QMainWindow):
         save_prefs({
             "language": get_language(),
             "theme": get_theme(),
+            "accent": get_accent_color(),
             "opacity": self._opacity,
             "on_top": self._on_top,
             "mini_width": self._mini_w,
             "mini_height": self._mini_h,
             "mini_view_mode": self._mini_view_mode,
             "mini_visible_views": self._mini_visible_views,
+            "mini_show_gadgets": self._mini_show_gadgets,
+            "mini_gadget_clock": self._mini_gadget_clock,
+            "mini_gadget_digital": self._mini_gadget_digital,
+            "mini_clock_theme": self._mini_clock_theme,
             "kanban_min_col_width": self._kanban_min_col_width,
             "kanban_show_quick": self._kanban_show_quick,
         })

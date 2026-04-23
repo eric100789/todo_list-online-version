@@ -29,8 +29,19 @@ STRINGS = {
     "mini_view_tasks": {"en": "Tasks", "zh_tw": "任務"},
     "mini_view_quick": {"en": "Quick", "zh_tw": "快速"},
     "mini_view_kanban": {"en": "Kanban", "zh_tw": "看板"},
+    "mini_view_clock": {"en": "Big Clock", "zh_tw": "大時鐘"},
     "mini_cycle_view": {"en": "Switch content", "zh_tw": "切換顯示內容"},
     "mini_select_view": {"en": "Choose content", "zh_tw": "選擇顯示內容"},
+    "mini_gadgets_title": {"en": "Mini Gadgets", "zh_tw": "小道具列表"},
+    "mini_gadgets_enable": {"en": "Enable gadgets", "zh_tw": "啟用小道具"},
+    "mini_gadget_clock": {"en": "Clock", "zh_tw": "時鐘"},
+    "mini_gadget_digital": {"en": "Digital Clock", "zh_tw": "數位時鐘"},
+    "clock_theme": {"en": "Clock Theme", "zh_tw": "時鐘樣式"},
+    "clock_theme_classic": {"en": "Classic", "zh_tw": "經典"},
+    "clock_theme_neon": {"en": "Neon", "zh_tw": "霓虹"},
+    "clock_theme_minimal": {"en": "Minimal", "zh_tw": "極簡"},
+    "clock_am": {"en": "AM", "zh_tw": "上午"},
+    "clock_pm": {"en": "PM", "zh_tw": "下午"},
 
     # Task card
     "no_due_date": {"en": "No due date", "zh_tw": "無截止日期"},
@@ -120,6 +131,12 @@ STRINGS = {
     "theme_label": {"en": "Theme", "zh_tw": "主題"},
     "theme_dark": {"en": "Dark", "zh_tw": "深色"},
     "theme_light": {"en": "Light", "zh_tw": "淺色"},
+    "color_label": {"en": "Color", "zh_tw": "色彩"},
+    "color_purple": {"en": "Purple", "zh_tw": "紫色"},
+    "color_blue": {"en": "Blue", "zh_tw": "藍色"},
+    "color_green": {"en": "Green", "zh_tw": "綠色"},
+    "color_orange": {"en": "Orange", "zh_tw": "橘色"},
+    "color_rose": {"en": "Rose", "zh_tw": "玫紅"},
 
     # Delete confirmations
     "delete_title": {"en": "Delete Task", "zh_tw": "刪除任務"},
