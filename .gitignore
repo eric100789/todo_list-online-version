@@ -1,3 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+env/
+.venv/
+venv/
+
+# Byte-compiled / distribution
+build/
+dist/
+*.egg-info/
+
+# VSCode
+.vscode/
+
+# Env files
+.env
+.env.*
+
+# Docker
+**/pgdata
+*.log
+
+# Node / frontend
+node_modules/
+frontend/build/
 # Python cache and bytecode
 __pycache__/
 *.py[cod]

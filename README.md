@@ -1,3 +1,50 @@
+# Todo Online Version — Migration to FastAPI + PostgreSQL + Docker
+
+This repository contains a minimal migration of the original PyQt6 desktop Todo app into a backend API (FastAPI), PostgreSQL database, a small static frontend and Docker Compose deployment.
+
+Quick start (development):
+
+1. Copy `.env.example` to `.env` and edit values.
+
+2. Start services:
+
+```bash
+docker-compose up --build
+```
+
+3. Create DB schema (run inside the `db` container or from host with psql):
+
+```bash
+# the repository is mounted into containers at /workspace — run the SQL migration file inside the db container
+docker-compose exec db psql -U postgres -d todo_db -f /workspace/migrations/initial.sql
+```
+
+Notes:
+- Backend API runs at `http://localhost:8000`.
+- Frontend static site served at `http://localhost:3000` (proxied to backend for `/api`).
+
+Auth and session notes:
+- Login issues a permanent session token (no expiration) stored in `sessions` table.
+- Single-device policy: login removes other sessions for the same user.
+- Use header `Authorization: Bearer <token>` for authenticated requests.
+
+PyQt6 desktop integration:
+
+- Replace direct DB access in the PyQt6 app with HTTP calls. See [docs/pyqt_integration.md](docs/pyqt_integration.md) for an example using `httpx`.
+
+
+Files added:
+- `backend/` — FastAPI app and Dockerfile
+- `frontend/` — simple static UI example (index.html + app.js)
+- `nginx/` — nginx conf used by the frontend image to proxy `/api` to backend
+- `docker-compose.yml` — orchestrates `db`, `backend`, `frontend`
+- `.env.example` — environment variables template
+- `migrations/initial.sql` — initial SQL to create tables in PostgreSQL
+
+Migration / production notes:
+- For production you should run Alembic migrations. The SQL in `migrations/initial.sql` is a starting point.
+- Replace `SECRET_KEY` with a secure random value.
+- Consider running the backend behind a production-grade process manager and TLS terminator.
 # Todo List 待辦清單應用程式
 
 使用 Python + PyQt6 + SQLite3 開發的桌面待辦工具，支援任務清單、Kanban 看板、歷史紀錄、記事與迷你模式。

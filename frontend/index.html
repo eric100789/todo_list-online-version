@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Todo Frontend</title>
+  </head>
+  <body>
+    <h1>Todo App</h1>
+    <div id="auth">
+      <h2>Authenticate</h2>
+      <label>Email or Username: <input id="username" /></label><br />
+      <label>Password: <input id="password" type="password" /></label><br />
+      <button id="login">Login</button>
+      <button id="show-register">Register</button>
+      <div id="register-form" style="display:none;">
+        <h3>Register</h3>
+        <label>Email: <input id="reg-email" /></label><br />
+        <label>Username: <input id="reg-username" /></label><br />
+        <label>Password: <input id="reg-password" type="password" /></label><br />
+        <button id="register">Create Account</button>
+      </div>
+      <div id="status"></div>
+    </div>
+
+    <div id="app" style="display:none;">
+      <div>
+        <button id="logout">Logout</button>
+        <button id="revoke-others">Revoke Other Sessions</button>
+      </div>
+      <h2>Your Tasks</h2>
+      <form id="task-form">
+        <input id="task-title" placeholder="Title" required />
+        <input id="task-desc" placeholder="Description" />
+        <button type="submit">Add Task</button>
+      </form>
+      <ul id="tasks"></ul>
+    </div>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js"></script>
+  </body>
+</html>

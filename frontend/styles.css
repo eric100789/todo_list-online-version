@@ -1,0 +1,8 @@
+body { font-family: Arial, sans-serif; margin: 24px; }
+h1 { margin-bottom: 16px; }
+#auth, #app { max-width: 700px; }
+#tasks { list-style: none; padding: 0; }
+#tasks li { padding: 8px 0; border-bottom: 1px solid #eee; }
+label { display:block; margin:6px 0; }
+input { padding:6px; margin:4px 0; }
+button { padding:6px 10px; margin:6px 4px; }

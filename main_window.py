@@ -71,7 +71,7 @@ class MainWindow(QMainWindow):
         # Load preferences
         prefs = load_prefs()
         lang = prefs.get("language", "zh_tw")
-        theme = prefs.get("theme", "dark")
+        theme = prefs.get("theme", "light")
         accent = prefs.get("accent", "purple")
         self._opacity = prefs.get("opacity", 1.0)
         self._on_top = prefs.get("on_top", False)

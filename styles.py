@@ -72,9 +72,9 @@ LIGHT_COLORS = {
 }
 
 # Current active color palette  (mutable dict, updated in-place)
-_current_theme = "dark"
+_current_theme = "light"
 _current_accent = "purple"
-COLORS: dict[str, str] = dict(DARK_COLORS)
+COLORS: dict[str, str] = dict(LIGHT_COLORS)
 
 
 def _apply_accent(colors: dict[str, str], accent_name: str) -> dict[str, str]:
@@ -90,7 +90,7 @@ def set_theme(theme: str):
     """Switch theme. 'dark' or 'light'."""
     global _current_theme
     _current_theme = theme
-    src = DARK_COLORS if theme == "dark" else LIGHT_COLORS
+    src = LIGHT_COLORS if theme == "light" else DARK_COLORS
     themed = _apply_accent(src, _current_accent)
     COLORS.clear()
     COLORS.update(themed)

@@ -383,3 +383,78 @@ class TaskDetailDialog(QDialog):
         close_btn.setMinimumHeight(40)
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
+
+
+class LoginDialog(QDialog):
+    """Login/register dialog for the API-backed desktop client."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(t("app_title"))
+        self.setFixedSize(420, 280)
+        self.setStyleSheet(build_main_stylesheet())
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.result_data = None
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+
+        title = QLabel("Sign in to Todo")
+        title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        layout.addWidget(title)
+
+        self.identity_input = QLineEdit()
+        self.identity_input.setPlaceholderText("Email or username")
+        layout.addWidget(self.identity_input)
+
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self.password_input)
+
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        layout.addWidget(self.status_label)
+
+        row = QHBoxLayout()
+        self.register_btn = QPushButton("Register")
+        self.register_btn.clicked.connect(self._on_register)
+        row.addWidget(self.register_btn)
+
+        self.login_btn = QPushButton("Login")
+        self.login_btn.clicked.connect(self._on_login)
+        row.addWidget(self.login_btn)
+        layout.addLayout(row)
+
+    def _payload(self):
+        identity = self.identity_input.text().strip()
+        password = self.password_input.text()
+        return identity, password
+
+    def _on_login(self):
+        from database import login
+
+        identity, password = self._payload()
+        try:
+            token = login(identity, password)
+            self.result_data = {"action": "login", "token": token}
+            self.accept()
+        except Exception as exc:
+            self.status_label.setText(f"Login failed: {exc}")
+
+    def _on_register(self):
+        from database import register
+
+        identity, password = self._payload()
+        if "@" not in identity:
+            self.status_label.setText("Please enter an email for registration.")
+            return
+        try:
+            register(identity, identity, password)
+            self.status_label.setText("Registered. You can login now.")
+        except Exception as exc:
+            self.status_label.setText(f"Register failed: {exc}")

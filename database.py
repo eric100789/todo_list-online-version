@@ -1,86 +1,136 @@
-"""Database layer for the Todo List application using SQLite3."""
+"""HTTP API adapter for the Todo List PyQt6 application.
 
-import sqlite3
+The original SQLite implementation has been moved to `database_sqlite.py`.
+This module preserves the same public function names, but routes operations
+through the FastAPI backend via httpx.
+"""
+
+from __future__ import annotations
+
+import json
 import os
 import sys
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
+
+import httpx
 
 
 def _get_data_dir() -> str:
-    """Return the directory where persistent data files (db, prefs) should live.
-
-    When running as a PyInstaller-bundled exe, __file__ resolves inside the
-    temporary _MEIPASS folder — so we use the directory of the executable
-    instead, ensuring the database is stored next to the .exe.
-    """
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
-DB_PATH = os.path.join(_get_data_dir(), "todo.db")
+DATA_DIR = _get_data_dir()
+API_BASE_URL = os.environ.get("TODO_API_BASE_URL", "http://127.0.0.1:8000")
+TOKEN_PATH = os.path.join(DATA_DIR, "api_token.json")
 
 
-def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return any(r[1] == column for r in rows)
+def _token_from_file() -> str | None:
+    try:
+        with open(TOKEN_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("token") or None
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
 
 
-def get_connection():
-    """Get a database connection with row factory."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+def _save_token(token: str | None) -> None:
+    if not token:
+        try:
+            os.remove(TOKEN_PATH)
+        except FileNotFoundError:
+            pass
+        return
+    with open(TOKEN_PATH, "w", encoding="utf-8") as f:
+        json.dump({"token": token}, f)
+
+
+def set_api_token(token: str | None) -> None:
+    _save_token(token)
+
+
+def get_api_token() -> str | None:
+    return _token_from_file()
+
+
+def _headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    token = get_api_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _request(method: str, path: str, *, json_body: Any = None, params: dict[str, Any] | None = None):
+    url = f"{API_BASE_URL.rstrip('/')}{path}"
+    with httpx.Client(timeout=20.0) as client:
+        response = client.request(method, url, headers=_headers(), json=json_body, params=params)
+    response.raise_for_status()
+    if response.headers.get("content-type", "").startswith("application/json"):
+        return response.json()
+    return response.text
+
+
+def _coerce_task(task: dict) -> dict:
+    return {
+        "id": task.get("id"),
+        "title": task.get("title", ""),
+        "description": task.get("description", ""),
+        "due_date": task.get("due_date"),
+        "is_starred": bool(task.get("is_starred", False)),
+        "status": task.get("status", "active"),
+        "created_at": task.get("created_at"),
+        "completed_at": task.get("completed_at"),
+        "category_id": task.get("category_id"),
+        "color": task.get("color", ""),
+        "task_type": task.get("task_type", "task"),
+        "pos_x": task.get("pos_x", 0),
+        "pos_y": task.get("pos_y", 0),
+    }
 
 
 def init_db():
-    """Initialize the database schema."""
-    conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            due_date DATE,
-            is_starred INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'active' CHECK(status IN ('active', 'completed')),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP
-        )
-    """)
-    if not _column_exists(conn, "tasks", "category_id"):
-        conn.execute("ALTER TABLE tasks ADD COLUMN category_id INTEGER")
-    if not _column_exists(conn, "tasks", "color"):
-        conn.execute("ALTER TABLE tasks ADD COLUMN color TEXT DEFAULT ''")
-    if not _column_exists(conn, "tasks", "task_type"):
-        conn.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'task'")
-    if not _column_exists(conn, "tasks", "pos_x"):
-        conn.execute("ALTER TABLE tasks ADD COLUMN pos_x INTEGER DEFAULT 0")
-    if not _column_exists(conn, "tasks", "pos_y"):
-        conn.execute("ALTER TABLE tasks ADD COLUMN pos_y INTEGER DEFAULT 0")
+    """Compatibility shim for the old startup call.
 
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS board_categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            color TEXT DEFAULT '',
-            position INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content TEXT NOT NULL DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+    The backend now owns persistence. This function just validates the API is
+    reachable when the desktop app starts.
+    """
+    try:
+        _request("GET", "/docs")
+    except Exception:
+        # Avoid blocking the GUI on startup if the API is not ready yet.
+        pass
+
+
+def login(email_or_username: str, password: str) -> str:
+    payload = {"email": email_or_username, "username": email_or_username, "password": password}
+    data = _request("POST", "/auth/login", json_body=payload)
+    token = data["token"]
+    set_api_token(token)
+    return token
+
+
+def register(email: str, username: str, password: str) -> dict:
+    payload = {"email": email, "username": username, "password": password}
+    data = _request("POST", "/auth/register", json_body=payload)
+    return data
+
+
+def logout():
+    try:
+        _request("POST", "/auth/logout")
+    finally:
+        set_api_token(None)
+
+
+def revoke_other_sessions():
+    _request("POST", "/auth/revoke_others")
+
+
+def get_current_user() -> dict:
+    return _request("GET", "/users/me")
 
 
 def add_task(
@@ -94,121 +144,65 @@ def add_task(
     pos_x=0,
     pos_y=0,
 ):
-    """Add a new task to the database."""
-    conn = get_connection()
-    cursor = conn.execute(
-        """
-        INSERT INTO tasks (title, description, due_date, is_starred, category_id, color, task_type, pos_x, pos_y)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            title,
-            description,
-            due_date,
-            int(is_starred),
-            category_id,
-            color or "",
-            task_type or "task",
-            int(pos_x or 0),
-            int(pos_y or 0),
-        )
-    )
-    task_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return task_id
+    payload = {
+        "title": title,
+        "description": description,
+        "due_date": due_date,
+        "is_starred": is_starred,
+        "category_id": category_id,
+        "color": color,
+        "task_type": task_type,
+        "pos_x": pos_x,
+        "pos_y": pos_y,
+    }
+    data = _request("POST", "/tasks", json_body=payload)
+    return data["id"]
 
 
 def get_active_tasks(include_quick: bool = False):
-    """Get all active tasks sorted by the specified hierarchy."""
-    conn = get_connection()
-    where_quick = "" if include_quick else "AND COALESCE(task_type, 'task') != 'quick'"
-    rows = conn.execute(
-        f"""
-        SELECT * FROM tasks WHERE status = 'active' {where_quick}
-        ORDER BY
-            is_starred DESC,
-            CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
-            due_date ASC
-    """
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    tasks = _request("GET", "/tasks")
+    filtered = [
+        _coerce_task(task)
+        for task in tasks
+        if task.get("status", "active") == "active"
+        and (include_quick or task.get("task_type", "task") != "quick")
+    ]
+    filtered.sort(key=lambda task: (
+        not bool(task.get("is_starred", False)),
+        task.get("due_date") is None,
+        task.get("due_date") or "",
+    ))
+    return filtered
 
 
 def get_quick_tasks():
-    """Get all active quick tasks for the sticky-note page."""
-    conn = get_connection()
-    rows = conn.execute(
-        """
-        SELECT * FROM tasks
-        WHERE status = 'active' AND COALESCE(task_type, 'task') = 'quick'
-        ORDER BY created_at ASC
-        """
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return [task for task in get_active_tasks(include_quick=True) if task.get("task_type", "task") == "quick"]
 
 
 def get_completed_tasks():
-    """Get all completed tasks ordered by completion time descending."""
-    conn = get_connection()
-    rows = conn.execute("""
-        SELECT * FROM tasks WHERE status = 'completed'
-        ORDER BY completed_at DESC
-    """).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return [task for task in _request("GET", "/tasks") if task.get("status") == "completed"]
 
 
 def get_all_tasks():
-    """Get all tasks."""
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return [_coerce_task(task) for task in _request("GET", "/tasks")]
 
 
 def complete_task(task_id):
-    """Mark a task as completed."""
-    conn = get_connection()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute(
-        "UPDATE tasks SET status = 'completed', completed_at = ? WHERE id = ?",
-        (now, task_id)
-    )
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/tasks/{task_id}", json_body={"completed": True, "status": "completed"})
 
 
 def delete_task(task_id):
-    """Permanently delete a task."""
-    conn = get_connection()
-    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    conn.commit()
-    conn.close()
+    _request("DELETE", f"/tasks/{task_id}")
 
 
 def toggle_star(task_id):
-    """Toggle the starred status of a task."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE tasks SET is_starred = CASE WHEN is_starred = 1 THEN 0 ELSE 1 END WHERE id = ?",
-        (task_id,)
-    )
-    conn.commit()
-    conn.close()
+    task = get_task_by_id(task_id)
+    if task:
+        _request("PATCH", f"/tasks/{task_id}", json_body={"is_starred": not bool(task.get("is_starred"))})
 
 
 def set_task_star(task_id: int, is_starred: bool):
-    """Set starred status directly."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE tasks SET is_starred=? WHERE id=?",
-        (1 if is_starred else 0, task_id)
-    )
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/tasks/{task_id}", json_body={"is_starred": bool(is_starred)})
 
 
 def update_task(
@@ -221,176 +215,87 @@ def update_task(
     color="",
     task_type="task",
 ):
-    """Update task details."""
-    conn = get_connection()
-    conn.execute(
-        """
-        UPDATE tasks
-        SET title=?, description=?, due_date=?, is_starred=?, category_id=?, color=?, task_type=?
-        WHERE id=?
-        """,
-        (
-            title,
-            description,
-            due_date,
-            int(is_starred),
-            category_id,
-            color or "",
-            task_type or "task",
-            task_id,
-        )
-    )
-    conn.commit()
-    conn.close()
+    payload = {
+        "title": title,
+        "description": description,
+        "due_date": due_date,
+        "is_starred": is_starred,
+        "category_id": category_id,
+        "color": color,
+        "task_type": task_type,
+    }
+    _request("PATCH", f"/tasks/{task_id}", json_body=payload)
 
 
 def get_task_by_id(task_id):
-    """Get a single task by its ID."""
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    tasks = _request("GET", "/tasks")
+    for task in tasks:
+        if task.get("id") == task_id:
+            return _coerce_task(task)
+    return None
 
 
 def get_tasks_for_month(year, month):
-    """Get tasks that have a due_date or completed_at in a given month."""
-    conn = get_connection()
+    # The current backend does not expose month filtering; use client-side filter.
     start = f"{year:04d}-{month:02d}-01"
     if month == 12:
         end = f"{year + 1:04d}-01-01"
     else:
         end = f"{year:04d}-{month + 1:02d}-01"
-    rows = conn.execute("""
-        SELECT * FROM tasks
-        WHERE (due_date >= ? AND due_date < ?)
-           OR (completed_at >= ? AND completed_at < ?)
-        ORDER BY due_date ASC, completed_at ASC
-    """, (start, end, start, end)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    for task in _request("GET", "/tasks"):
+        due_date = task.get("due_date")
+        completed_at = task.get("completed_at")
+        if (due_date and start <= due_date < end) or (completed_at and start <= completed_at < end):
+            result.append(_coerce_task(task))
+    return result
 
 
 def get_board_categories():
-    """Get all Kanban categories in display order."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM board_categories ORDER BY position ASC, id ASC"
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return _request("GET", "/categories")
 
 
 def add_board_category(name: str, color: str = "") -> int:
-    """Create a Kanban category."""
-    conn = get_connection()
-    row = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM board_categories").fetchone()
-    position = row[0] if row else 0
-    cursor = conn.execute(
-        "INSERT INTO board_categories (name, color, position) VALUES (?, ?, ?)",
-        (name.strip(), color or "", position)
-    )
-    cat_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return cat_id
+    data = _request("POST", "/categories", json_body={"name": name, "color": color})
+    return data["id"]
 
 
 def update_board_category(category_id: int, name: str, color: str = ""):
-    """Update category metadata."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE board_categories SET name=?, color=? WHERE id=?",
-        (name.strip(), color or "", category_id)
-    )
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/categories/{category_id}", json_body={"name": name, "color": color})
 
 
 def delete_board_category(category_id: int):
-    """Delete a category and move its tasks back to uncategorized."""
-    conn = get_connection()
-    conn.execute("UPDATE tasks SET category_id=NULL WHERE category_id=?", (category_id,))
-    conn.execute("DELETE FROM board_categories WHERE id=?", (category_id,))
-    conn.commit()
-    conn.close()
+    _request("DELETE", f"/categories/{category_id}")
 
 
 def update_board_category_positions(category_ids: list[int]):
-    """Persist category display order by id sequence."""
-    conn = get_connection()
-    for idx, cat_id in enumerate(category_ids):
-        conn.execute(
-            "UPDATE board_categories SET position=? WHERE id=?",
-            (idx, cat_id)
-        )
-    conn.commit()
-    conn.close()
+    _request("POST", "/categories/reorder", json_body={"category_ids": category_ids})
 
 
 def update_task_category(task_id: int, category_id: Optional[int]):
-    """Move a task to another Kanban category."""
-    conn = get_connection()
-    conn.execute("UPDATE tasks SET category_id=? WHERE id=?", (category_id, task_id))
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/tasks/{task_id}", json_body={"category_id": category_id})
 
 
 def update_task_color(task_id: int, color: str = ""):
-    """Update a task card color."""
-    conn = get_connection()
-    conn.execute("UPDATE tasks SET color=? WHERE id=?", (color or "", task_id))
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/tasks/{task_id}", json_body={"color": color})
 
 
 def update_task_position(task_id: int, pos_x: int, pos_y: int):
-    """Update saved card position for sticky quick tasks."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE tasks SET pos_x=?, pos_y=? WHERE id=?",
-        (int(pos_x), int(pos_y), task_id),
-    )
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/tasks/{task_id}", json_body={"pos_x": pos_x, "pos_y": pos_y})
 
-
-# ── Notes CRUD ──────────────────────────────────────────────
 
 def add_note(content: str) -> int:
-    """Add a new note. Returns the note id."""
-    conn = get_connection()
-    cursor = conn.execute(
-        "INSERT INTO notes (content) VALUES (?)", (content,)
-    )
-    note_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return note_id
+    data = _request("POST", "/notes", json_body={"content": content})
+    return data["id"]
 
 
 def get_all_notes() -> list[dict]:
-    """Get all notes ordered by most-recently updated first."""
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM notes ORDER BY updated_at DESC").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return _request("GET", "/notes")
 
 
 def update_note(note_id: int, content: str):
-    """Update a note's content."""
-    conn = get_connection()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute(
-        "UPDATE notes SET content=?, updated_at=? WHERE id=?",
-        (content, now, note_id)
-    )
-    conn.commit()
-    conn.close()
+    _request("PATCH", f"/notes/{note_id}", json_body={"content": content})
 
 
 def delete_note(note_id: int):
-    """Permanently delete a note."""
-    conn = get_connection()
-    conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
-    conn.commit()
-    conn.close()
+    _request("DELETE", f"/notes/{note_id}")
