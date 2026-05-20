@@ -16,6 +16,10 @@ from typing import Optional, Any
 import httpx
 
 
+class APIUnavailableError(RuntimeError):
+    pass
+
+
 def _get_data_dir() -> str:
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
@@ -65,12 +69,15 @@ def _headers() -> dict[str, str]:
 
 def _request(method: str, path: str, *, json_body: Any = None, params: dict[str, Any] | None = None):
     url = f"{API_BASE_URL.rstrip('/')}{path}"
-    with httpx.Client(timeout=20.0) as client:
-        response = client.request(method, url, headers=_headers(), json=json_body, params=params)
-    response.raise_for_status()
-    if response.headers.get("content-type", "").startswith("application/json"):
-        return response.json()
-    return response.text
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            response = client.request(method, url, headers=_headers(), json=json_body, params=params)
+        response.raise_for_status()
+        if response.headers.get("content-type", "").startswith("application/json"):
+            return response.json()
+        return response.text
+    except httpx.RequestError as exc:
+        raise APIUnavailableError(f"Unable to reach backend at {API_BASE_URL}") from exc
 
 
 def _coerce_task(task: dict) -> dict:
@@ -99,13 +106,13 @@ def init_db():
     """
     try:
         _request("GET", "/docs")
-    except Exception:
+    except APIUnavailableError:
         # Avoid blocking the GUI on startup if the API is not ready yet.
         pass
 
 
 def login(email_or_username: str, password: str) -> str:
-    payload = {"email": email_or_username, "username": email_or_username, "password": password}
+    payload = {"identity": email_or_username, "email": email_or_username, "username": email_or_username, "password": password}
     data = _request("POST", "/auth/login", json_body=payload)
     token = data["token"]
     set_api_token(token)
@@ -129,8 +136,41 @@ def revoke_other_sessions():
     _request("POST", "/auth/revoke_others")
 
 
+def get_sessions() -> list[dict]:
+    try:
+        return _request("GET", "/auth/sessions")
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
+
+
+def revoke_sessions(session_ids: list[int]) -> dict:
+    return _request("POST", "/auth/sessions/revoke", json_body={"session_ids": session_ids})
+
+
+def revoke_session(session_id: int) -> dict:
+    return revoke_sessions([session_id])
+
+
+def validate_api_token() -> bool:
+    token = get_api_token()
+    if not token:
+        return False
+    try:
+        _request("GET", "/users/me")
+        return True
+    except APIUnavailableError:
+        return False
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 401:
+            set_api_token(None)
+        return False
+
+
 def get_current_user() -> dict:
-    return _request("GET", "/users/me")
+    try:
+        return _request("GET", "/users/me")
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return {}
 
 
 def add_task(
@@ -160,31 +200,43 @@ def add_task(
 
 
 def get_active_tasks(include_quick: bool = False):
-    tasks = _request("GET", "/tasks")
-    filtered = [
-        _coerce_task(task)
-        for task in tasks
-        if task.get("status", "active") == "active"
-        and (include_quick or task.get("task_type", "task") != "quick")
-    ]
-    filtered.sort(key=lambda task: (
-        not bool(task.get("is_starred", False)),
-        task.get("due_date") is None,
-        task.get("due_date") or "",
-    ))
-    return filtered
+    try:
+        tasks = _request("GET", "/tasks")
+        filtered = [
+            _coerce_task(task)
+            for task in tasks
+            if task.get("status", "active") == "active"
+            and (include_quick or task.get("task_type", "task") != "quick")
+        ]
+        filtered.sort(key=lambda task: (
+            not bool(task.get("is_starred", False)),
+            task.get("due_date") is None,
+            task.get("due_date") or "",
+        ))
+        return filtered
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
 
 
 def get_quick_tasks():
-    return [task for task in get_active_tasks(include_quick=True) if task.get("task_type", "task") == "quick"]
+    try:
+        return [task for task in get_active_tasks(include_quick=True) if task.get("task_type", "task") == "quick"]
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
 
 
 def get_completed_tasks():
-    return [task for task in _request("GET", "/tasks") if task.get("status") == "completed"]
+    try:
+        return [task for task in _request("GET", "/tasks") if task.get("status") == "completed"]
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
 
 
 def get_all_tasks():
-    return [_coerce_task(task) for task in _request("GET", "/tasks")]
+    try:
+        return [_coerce_task(task) for task in _request("GET", "/tasks")]
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
 
 
 def complete_task(task_id):
@@ -228,10 +280,13 @@ def update_task(
 
 
 def get_task_by_id(task_id):
-    tasks = _request("GET", "/tasks")
-    for task in tasks:
-        if task.get("id") == task_id:
-            return _coerce_task(task)
+    try:
+        tasks = _request("GET", "/tasks")
+        for task in tasks:
+            if task.get("id") == task_id:
+                return _coerce_task(task)
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return None
     return None
 
 
@@ -243,16 +298,22 @@ def get_tasks_for_month(year, month):
     else:
         end = f"{year:04d}-{month + 1:02d}-01"
     result = []
-    for task in _request("GET", "/tasks"):
-        due_date = task.get("due_date")
-        completed_at = task.get("completed_at")
-        if (due_date and start <= due_date < end) or (completed_at and start <= completed_at < end):
-            result.append(_coerce_task(task))
+    try:
+        for task in _request("GET", "/tasks"):
+            due_date = task.get("due_date")
+            completed_at = task.get("completed_at")
+            if (due_date and start <= due_date < end) or (completed_at and start <= completed_at < end):
+                result.append(_coerce_task(task))
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
     return result
 
 
 def get_board_categories():
-    return _request("GET", "/categories")
+    try:
+        return _request("GET", "/categories")
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
 
 
 def add_board_category(name: str, color: str = "") -> int:
@@ -290,7 +351,14 @@ def add_note(content: str) -> int:
 
 
 def get_all_notes() -> list[dict]:
-    return _request("GET", "/notes")
+    try:
+        return _request("GET", "/notes")
+    except (APIUnavailableError, httpx.HTTPStatusError):
+        return []
+
+
+def auto_complete_task(task_id):
+    _request("PATCH", f"/tasks/{task_id}", json_body={"completed": True, "status": "completed", "auto_completed": True})
 
 
 def update_note(note_id: int, content: str):

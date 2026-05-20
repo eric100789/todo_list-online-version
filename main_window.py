@@ -21,15 +21,17 @@ from styles import (
     get_accent_color,
 )
 from database import (
+    APIUnavailableError,
     get_active_tasks, complete_task, delete_task, toggle_star,
     add_task, update_task, get_task_by_id,
     get_quick_tasks, update_task_position,
     get_board_categories, add_board_category, update_board_category,
     delete_board_category, update_task_category,
-    update_board_category_positions
+    update_board_category_positions, auto_complete_task, get_completed_tasks,
+    get_sessions, revoke_sessions, get_api_token, set_api_token
 )
 from task_card import TaskCard
-from dialogs import TaskDialog, TaskDetailDialog
+from dialogs import TaskDialog, TaskDetailDialog, LoginDialog
 from history_view import HistoryView
 from settings_panel import SettingsPanel
 from mini_mode import MiniMode
@@ -37,6 +39,7 @@ from notes_view import NotesView
 from quick_view import QuickView
 from i18n import t, set_language, get_language
 from kanban_view import KanbanView, CategoryDialog
+from date_utils import is_overdue
 
 
 def _get_data_dir() -> str:
@@ -85,6 +88,11 @@ class MainWindow(QMainWindow):
         self._mini_clock_theme = prefs.get("mini_clock_theme", "classic")
         self._kanban_min_col_width = prefs.get("kanban_min_col_width", 260)
         self._kanban_show_quick = prefs.get("kanban_show_quick", False)
+        self._kanban_auto_complete_enabled = prefs.get("kanban_auto_complete_enabled", False)
+        self._kanban_auto_complete_color = prefs.get("kanban_auto_complete_color", "#D1D5DB")
+        self._kanban_auto_complete_retention = int(prefs.get("kanban_auto_complete_retention_days", 3))
+        self._kanban_recent_completed_enabled = prefs.get("kanban_recent_completed_enabled", False)
+        self._kanban_recent_completed_days = int(prefs.get("kanban_recent_completed_days", 3))
 
         set_language(lang)
         set_theme(theme)
@@ -104,8 +112,6 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self.refresh_tasks()
         self.refresh_quick()
-        self.refresh_kanban()
-        self._update_header_navigation_mode()
 
     def _normalize_mini_view_mode(self, mode: str) -> str:
         mapping = {
@@ -135,18 +141,11 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Top header bar
-        self.header = QFrame()
-        header = self.header
-        header.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS['surface']};
-                border-bottom: 1px solid {COLORS['border']};
-            }}
-        """)
-        self.header_layout = QHBoxLayout(header)
+        self.header = QWidget()
+        self.header_layout = QHBoxLayout(self.header)
         self.header_layout.setContentsMargins(20, 14, 20, 14)
         self.header_layout.setSpacing(12)
+        main_layout.addWidget(self.header)
 
         self.app_title = QLabel(t("app_title"))
         self.app_title.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
@@ -225,7 +224,7 @@ class MainWindow(QMainWindow):
         self.nav_settings_btn.clicked.connect(lambda: self._switch_view(5))
         self.header_layout.addWidget(self.nav_settings_btn)
 
-        main_layout.addWidget(header)
+        main_layout.addWidget(self.header)
 
         # Stacked views
         self.stack = QStackedWidget()
@@ -313,9 +312,16 @@ class MainWindow(QMainWindow):
         self.settings_panel.accent_changed.connect(self._on_accent_changed)
         self.settings_panel.mini_size_changed.connect(self._on_mini_size_changed)
         self.settings_panel.kanban_min_width_changed.connect(self._on_kanban_min_width_changed)
+        self.settings_panel.kanban_auto_complete_changed.connect(self._on_kanban_auto_complete_changed)
+        self.settings_panel.kanban_auto_complete_color_changed.connect(self._on_kanban_auto_complete_color_changed)
+        self.settings_panel.kanban_auto_complete_days_changed.connect(self._on_kanban_auto_complete_days_changed)
+        self.settings_panel.kanban_recent_completed_changed.connect(self._on_kanban_recent_completed_changed)
+        self.settings_panel.kanban_recent_completed_days_changed.connect(self._on_kanban_recent_completed_days_changed)
         self.settings_panel.mini_views_changed.connect(self._on_mini_views_changed)
         self.settings_panel.mini_gadgets_changed.connect(self._on_mini_gadgets_changed)
         self.settings_panel.mini_clock_theme_changed.connect(self._on_mini_clock_theme_changed)
+        self.settings_panel.session_refresh_requested.connect(self._refresh_sessions)
+        self.settings_panel.session_revoke_requested.connect(self._revoke_selected_sessions)
 
         # Sync settings panel to current state
         self.settings_panel.opacity_slider.setValue(int(self._opacity * 100))
@@ -323,6 +329,15 @@ class MainWindow(QMainWindow):
         self.settings_panel.mini_width_spin.setValue(self._mini_w)
         self.settings_panel.mini_height_spin.setValue(self._mini_h)
         self.settings_panel.set_kanban_layout(self._kanban_min_col_width)
+        self.settings_panel.set_kanban_auto_complete(
+            self._kanban_auto_complete_enabled,
+            self._kanban_auto_complete_color,
+            self._kanban_auto_complete_retention,
+        )
+        self.settings_panel.set_kanban_recent_completed(
+            self._kanban_recent_completed_enabled,
+            self._kanban_recent_completed_days,
+        )
         self.settings_panel.set_mini_visible_views(self._mini_visible_views)
         self.settings_panel.set_mini_gadgets(
             self._mini_show_gadgets,
@@ -331,6 +346,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_panel.set_clock_theme(self._mini_clock_theme)
         self.settings_panel.set_accent(get_accent_color())
+        self.settings_panel.set_sessions([])
 
         self.settings_scroll = QScrollArea()
         self.settings_scroll.setWidgetResizable(True)
@@ -574,8 +590,74 @@ class MainWindow(QMainWindow):
 
     def refresh_kanban(self):
         tasks = get_active_tasks(include_quick=self._kanban_show_quick)
+
+        auto_complete_candidates = []
+        if self._kanban_auto_complete_enabled:
+            for task in tasks:
+                if task.get("due_date") and is_overdue(task.get("due_date")):
+                    auto_complete_candidates.append(task)
+
+            for task in auto_complete_candidates:
+                try:
+                    auto_complete_task(int(task["id"]))
+                except APIUnavailableError:
+                    pass
+
+            if auto_complete_candidates:
+                tasks = get_active_tasks(include_quick=self._kanban_show_quick)
+
         categories = get_board_categories()
-        self.kanban_view.refresh(tasks, categories)
+
+        auto_completed_recent = []
+        if self._kanban_auto_complete_enabled:
+            completed = get_completed_tasks()
+            from datetime import datetime, timedelta
+            cutoff = datetime.now() - timedelta(days=int(self._kanban_auto_complete_retention))
+            for completed_task in completed:
+                auto_completed_at = completed_task.get("auto_completed_at")
+                if not auto_completed_at:
+                    continue
+                try:
+                    auto_completed_at_dt = datetime.fromisoformat(str(auto_completed_at).replace("Z", "+00:00"))
+                    if auto_completed_at_dt.tzinfo is not None:
+                        auto_completed_at_dt = auto_completed_at_dt.replace(tzinfo=None)
+                except Exception:
+                    try:
+                        auto_completed_at_dt = datetime.strptime(str(auto_completed_at), "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        continue
+                if auto_completed_at_dt >= cutoff:
+                    auto_completed_recent.append(completed_task)
+
+        recent_completed = []
+        if self._kanban_recent_completed_enabled:
+            completed = get_completed_tasks()
+            from datetime import datetime, timedelta
+            cutoff = datetime.now() - timedelta(days=int(self._kanban_recent_completed_days))
+            for completed_task in completed:
+                completed_at = completed_task.get("completed_at")
+                if not completed_at:
+                    continue
+                try:
+                    completed_at_dt = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
+                    if completed_at_dt.tzinfo is not None:
+                        completed_at_dt = completed_at_dt.replace(tzinfo=None)
+                except Exception:
+                    try:
+                        completed_at_dt = datetime.strptime(str(completed_at), "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        continue
+                if completed_at_dt >= cutoff:
+                    completed_task["recent_completed"] = True
+                    recent_completed.append(completed_task)
+
+        self.kanban_view.refresh(
+            tasks,
+            categories,
+            recent_completed=recent_completed,
+            auto_complete_tasks=auto_completed_recent,
+            auto_complete_color=self._kanban_auto_complete_color,
+        )
 
     def _on_kanban_show_quick_toggled(self, enabled: bool):
         self._kanban_show_quick = bool(enabled)
@@ -655,6 +737,37 @@ class MainWindow(QMainWindow):
         self._kanban_min_col_width = int(min_col_width)
         self.kanban_view.set_layout_preferences(self._kanban_min_col_width)
         self._save_current_prefs()
+
+    def _on_kanban_auto_complete_changed(self, enabled: bool):
+        self._kanban_auto_complete_enabled = bool(enabled)
+        self._save_current_prefs()
+        self.refresh_kanban()
+
+    def _on_kanban_auto_complete_color_changed(self, color: str):
+        self._kanban_auto_complete_color = color or "#D1D5DB"
+        self._save_current_prefs()
+        self.refresh_kanban()
+
+    def _on_kanban_auto_complete_days_changed(self, days: int):
+        try:
+            self._kanban_auto_complete_retention = int(days)
+        except Exception:
+            self._kanban_auto_complete_retention = 3
+        self._save_current_prefs()
+        self.refresh_kanban()
+
+    def _on_kanban_recent_completed_changed(self, enabled: bool):
+        self._kanban_recent_completed_enabled = bool(enabled)
+        self._save_current_prefs()
+        self.refresh_kanban()
+
+    def _on_kanban_recent_completed_days_changed(self, days: int):
+        try:
+            self._kanban_recent_completed_days = int(days)
+        except Exception:
+            self._kanban_recent_completed_days = 3
+        self._save_current_prefs()
+        self.refresh_kanban()
 
     def _on_history_deleted(self):
         """Refresh calendar after a completed task is deleted from history."""
@@ -790,6 +903,25 @@ class MainWindow(QMainWindow):
 
         self.kanban_view.set_layout_preferences(self._kanban_min_col_width)
 
+    def _refresh_sessions(self):
+        self.settings_panel.set_sessions(get_sessions())
+
+    def _revoke_selected_sessions(self, session_ids: list[int]):
+        if not session_ids:
+            return
+        try:
+            result = revoke_sessions(session_ids)
+        except APIUnavailableError:
+            return
+        current_token = get_api_token()
+        revoked_ids = result.get("revoked_ids", []) or []
+        if result.get("revoked_current") or (current_token and current_token in revoked_ids):
+            set_api_token(None)
+            login_dialog = LoginDialog(self)
+            login_dialog.status_label.setText(t("backend_unavailable"))
+            login_dialog.exec()
+        self._refresh_sessions()
+
     def _save_current_prefs(self):
         save_prefs({
             "language": get_language(),
@@ -807,4 +939,9 @@ class MainWindow(QMainWindow):
             "mini_clock_theme": self._mini_clock_theme,
             "kanban_min_col_width": self._kanban_min_col_width,
             "kanban_show_quick": self._kanban_show_quick,
+            "kanban_auto_complete_enabled": self._kanban_auto_complete_enabled,
+            "kanban_auto_complete_color": self._kanban_auto_complete_color,
+            "kanban_auto_complete_retention_days": self._kanban_auto_complete_retention,
+            "kanban_recent_completed_enabled": self._kanban_recent_completed_enabled,
+            "kanban_recent_completed_days": self._kanban_recent_completed_days,
         })

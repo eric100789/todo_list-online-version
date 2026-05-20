@@ -51,6 +51,7 @@ class Task(Base):
     completed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    auto_completed_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
     category_id = Column(Integer, nullable=True)
     color = Column(String(64), default="")

@@ -4,7 +4,8 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QTextEdit, QCheckBox, QPushButton, QFrame, QCalendarWidget, QColorDialog
+    QTextEdit, QCheckBox, QPushButton, QFrame, QCalendarWidget, QColorDialog,
+    QWidget, QFormLayout
 )
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
@@ -391,7 +392,7 @@ class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t("app_title"))
-        self.setFixedSize(420, 280)
+        self.setMinimumSize(440, 390)
         self.setStyleSheet(build_main_stylesheet())
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self.result_data = None
@@ -400,11 +401,16 @@ class LoginDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
 
-        title = QLabel("Sign in to Todo")
+        title = QLabel("Todo Login")
         title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         layout.addWidget(title)
+
+        subtitle = QLabel("Sign in with email or username. Register with email, username, and password.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        layout.addWidget(subtitle)
 
         self.identity_input = QLineEdit()
         self.identity_input.setPlaceholderText("Email or username")
@@ -415,6 +421,27 @@ class LoginDialog(QDialog):
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self.password_input)
 
+        self.register_form = QWidget()
+        register_layout = QFormLayout(self.register_form)
+        register_layout.setContentsMargins(0, 0, 0, 0)
+        register_layout.setSpacing(8)
+
+        self.register_email_input = QLineEdit()
+        self.register_email_input.setPlaceholderText("Email")
+        register_layout.addRow("Email", self.register_email_input)
+
+        self.register_username_input = QLineEdit()
+        self.register_username_input.setPlaceholderText("Username")
+        register_layout.addRow("Username", self.register_username_input)
+
+        self.register_password_input = QLineEdit()
+        self.register_password_input.setPlaceholderText("Password")
+        self.register_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        register_layout.addRow("Password", self.register_password_input)
+
+        self.register_form.setVisible(False)
+        layout.addWidget(self.register_form)
+
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
@@ -424,6 +451,11 @@ class LoginDialog(QDialog):
         self.register_btn = QPushButton("Register")
         self.register_btn.clicked.connect(self._on_register)
         row.addWidget(self.register_btn)
+
+        self.toggle_register_btn = QPushButton("Create account")
+        self.toggle_register_btn.setObjectName("ghostBtn")
+        self.toggle_register_btn.clicked.connect(self._toggle_register_form)
+        row.addWidget(self.toggle_register_btn)
 
         self.login_btn = QPushButton("Login")
         self.login_btn.clicked.connect(self._on_login)
@@ -449,12 +481,20 @@ class LoginDialog(QDialog):
     def _on_register(self):
         from database import register
 
-        identity, password = self._payload()
-        if "@" not in identity:
-            self.status_label.setText("Please enter an email for registration.")
+        email = self.register_email_input.text().strip()
+        username = self.register_username_input.text().strip()
+        password = self.register_password_input.text()
+        if not email or not username or not password:
+            self.status_label.setText("Please fill email, username, and password.")
             return
         try:
-            register(identity, identity, password)
+            register(email, username, password)
             self.status_label.setText("Registered. You can login now.")
+            self.identity_input.setText(email)
         except Exception as exc:
             self.status_label.setText(f"Register failed: {exc}")
+
+    def _toggle_register_form(self):
+        visible = not self.register_form.isVisible()
+        self.register_form.setVisible(visible)
+        self.toggle_register_btn.setText("Hide register form" if visible else "Create account")

@@ -20,6 +20,7 @@ async def on_startup():
         await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_starred BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active'"))
         await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP NULL"))
+        await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS auto_completed_at TIMESTAMP NULL"))
         await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category_id INTEGER NULL"))
         await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS color VARCHAR(64) DEFAULT ''"))
         await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_type VARCHAR(32) DEFAULT 'task'"))
@@ -41,12 +42,23 @@ def _task_dict(task: models.Task) -> dict:
         "completed": bool(task.completed),
         "created_at": task.created_at,
         "completed_at": task.completed_at,
+        "auto_completed_at": task.auto_completed_at,
         "updated_at": task.updated_at,
         "category_id": task.category_id,
         "color": task.color or "",
         "task_type": task.task_type or "task",
         "pos_x": task.pos_x or 0,
         "pos_y": task.pos_y or 0,
+    }
+
+
+def _session_dict(session: models.Session, current_token: str | None = None) -> dict:
+    return {
+        "id": session.id,
+        "token": session.token,
+        "device_info": session.device_info,
+        "created_at": session.created_at,
+        "is_current": bool(current_token and session.token == current_token),
     }
 
 
@@ -66,8 +78,11 @@ async def register(payload: schemas.UserCreate, db: AsyncSession = Depends(get_d
 
 
 @app.post("/auth/login", response_model=schemas.TokenOut)
-async def login(payload: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
-    q = select(models.User).where((models.User.email == payload.email) | (models.User.username == payload.username))
+async def login(payload: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
+    identity = (payload.identity or payload.email or payload.username or "").strip()
+    if not identity:
+        raise HTTPException(status_code=400, detail="Email or username is required")
+    q = select(models.User).where((models.User.email == identity) | (models.User.username == identity))
     res = await db.execute(q)
     user = res.scalars().first()
     if not user or not auth.verify_password(payload.password, user.password_hash):
@@ -95,6 +110,43 @@ async def revoke_others(current_user: models.User = Depends(auth.get_current_use
     await db.execute(models.Session.__table__.delete().where((models.Session.user_id == current_user.id) & (models.Session.token != token)))
     await db.commit()
     return {"ok": True}
+
+
+@app.get("/auth/sessions", response_model=list[schemas.SessionOut])
+async def list_sessions(current_user: models.User = Depends(auth.get_current_user), db: AsyncSession = Depends(get_db), authorization: str | None = Header(None)):
+    current_token = None
+    if authorization and authorization.startswith("Bearer "):
+        current_token = authorization.split(" ", 1)[1]
+    q = select(models.Session).where(models.Session.user_id == current_user.id).order_by(models.Session.created_at.desc(), models.Session.id.desc())
+    res = await db.execute(q)
+    return [_session_dict(session, current_token=current_token) for session in res.scalars().all()]
+
+
+@app.post("/auth/sessions/revoke")
+async def revoke_sessions(payload: dict = Body(...), current_user: models.User = Depends(auth.get_current_user), db: AsyncSession = Depends(get_db), authorization: str | None = Header(None)):
+    raw_ids = payload.get("session_ids", [])
+    session_ids = []
+    for value in raw_ids:
+        try:
+            session_ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="No session ids provided")
+
+    current_token = None
+    if authorization and authorization.startswith("Bearer "):
+        current_token = authorization.split(" ", 1)[1]
+
+    q = select(models.Session).where((models.Session.user_id == current_user.id) & (models.Session.id.in_(session_ids)))
+    res = await db.execute(q)
+    sessions = res.scalars().all()
+    revoked_current = any(session.token == current_token for session in sessions)
+    revoked_ids = [session.id for session in sessions]
+    for session in sessions:
+        await db.delete(session)
+    await db.commit()
+    return {"ok": True, "revoked_current": revoked_current, "revoked_ids": revoked_ids}
 
 
 @app.get("/users/me", response_model=schemas.UserOut)
@@ -137,10 +189,17 @@ async def update_task(task_id: int, payload: dict = Body(...), current_user: mod
         task.status = payload["status"]
         task.completed = payload["status"] == "completed"
         task.completed_at = datetime.utcnow() if task.completed else None
+    if payload.get("auto_completed"):
+        task.status = "completed"
+        task.completed = True
+        task.completed_at = task.completed_at or datetime.utcnow()
+        task.auto_completed_at = task.auto_completed_at or datetime.utcnow()
     if "completed" in payload:
         task.completed = bool(payload["completed"])
         task.status = "completed" if task.completed else "active"
         task.completed_at = datetime.utcnow() if task.completed else None
+        if task.completed and payload.get("auto_completed"):
+            task.auto_completed_at = datetime.utcnow()
     if "category_id" in payload:
         task.category_id = payload["category_id"]
     if "color" in payload:

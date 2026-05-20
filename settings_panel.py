@@ -6,7 +6,7 @@ import winreg
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QCheckBox, QPushButton,
-    QComboBox, QFrame, QSpinBox
+    QComboBox, QFrame, QSpinBox, QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -63,9 +63,16 @@ class SettingsPanel(QWidget):
     theme_changed = pyqtSignal(str)
     accent_changed = pyqtSignal(str)
     kanban_min_width_changed = pyqtSignal(int)
+    kanban_auto_complete_changed = pyqtSignal(bool)
+    kanban_auto_complete_color_changed = pyqtSignal(str)
+    kanban_auto_complete_days_changed = pyqtSignal(int)
+    kanban_recent_completed_changed = pyqtSignal(bool)
+    kanban_recent_completed_days_changed = pyqtSignal(int)
     mini_views_changed = pyqtSignal(list)
     mini_gadgets_changed = pyqtSignal(bool, bool, bool)
     mini_clock_theme_changed = pyqtSignal(str)
+    session_refresh_requested = pyqtSignal()
+    session_revoke_requested = pyqtSignal(list)
 
     MINI_DEFAULT_W = 200
     MINI_DEFAULT_H = 380
@@ -150,6 +157,64 @@ class SettingsPanel(QWidget):
         kanban_width_row.addStretch()
 
         layout.addLayout(kanban_width_row)
+
+        # --- Kanban Auto-Complete ---
+        auto_row = QHBoxLayout()
+        auto_row.setSpacing(10)
+
+        self.kanban_auto_complete_check = QCheckBox(t("kanban_auto_complete_toggle"))
+        self.kanban_auto_complete_check.setFont(QFont("Segoe UI", 12))
+        self.kanban_auto_complete_check.stateChanged.connect(
+            lambda state: self.kanban_auto_complete_changed.emit(bool(state))
+        )
+        auto_row.addWidget(self.kanban_auto_complete_check)
+
+        self.kanban_auto_complete_color = QComboBox()
+        self.kanban_auto_complete_color.addItem(t("auto_complete_color_default"), "#D1D5DB")
+        self.kanban_auto_complete_color.addItem(t("auto_complete_color_light"), "#E5E7EB")
+        self.kanban_auto_complete_color.addItem(t("auto_complete_color_muted"), "#BDBDBD")
+        self.kanban_auto_complete_color.setMinimumWidth(160)
+        self.kanban_auto_complete_color.currentIndexChanged.connect(
+            lambda idx: self.kanban_auto_complete_color_changed.emit(self.kanban_auto_complete_color.itemData(idx))
+        )
+        auto_row.addWidget(self.kanban_auto_complete_color)
+
+        self.kanban_auto_complete_days = QSpinBox()
+        self.kanban_auto_complete_days.setMinimum(1)
+        self.kanban_auto_complete_days.setMaximum(30)
+        self.kanban_auto_complete_days.setValue(3)
+        self.kanban_auto_complete_days.setSuffix(" d")
+        self.kanban_auto_complete_days.valueChanged.connect(
+            lambda v: self.kanban_auto_complete_days_changed.emit(int(v))
+        )
+        auto_row.addWidget(self.kanban_auto_complete_days)
+
+        auto_row.addStretch()
+        layout.addLayout(auto_row)
+
+        # --- Recent Completed ---
+        recent_row = QHBoxLayout()
+        recent_row.setSpacing(10)
+
+        self.kanban_recent_completed_check = QCheckBox(t("recent_completed_toggle"))
+        self.kanban_recent_completed_check.setFont(QFont("Segoe UI", 12))
+        self.kanban_recent_completed_check.stateChanged.connect(
+            lambda state: self.kanban_recent_completed_changed.emit(bool(state))
+        )
+        recent_row.addWidget(self.kanban_recent_completed_check)
+
+        self.kanban_recent_completed_days = QSpinBox()
+        self.kanban_recent_completed_days.setMinimum(1)
+        self.kanban_recent_completed_days.setMaximum(30)
+        self.kanban_recent_completed_days.setValue(3)
+        self.kanban_recent_completed_days.setSuffix(" d")
+        self.kanban_recent_completed_days.valueChanged.connect(
+            lambda v: self.kanban_recent_completed_days_changed.emit(int(v))
+        )
+        recent_row.addWidget(self.kanban_recent_completed_days)
+
+        recent_row.addStretch()
+        layout.addLayout(recent_row)
 
         self._add_separator(layout)
 
@@ -256,6 +321,32 @@ class SettingsPanel(QWidget):
             lambda state: set_auto_startup(bool(state))
         )
         layout.addWidget(self.startup_check)
+
+        self._add_separator(layout)
+
+        # --- API Sessions ---
+        self.sessions_title_label = QLabel("API Sessions")
+        self.sessions_title_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        layout.addWidget(self.sessions_title_label)
+
+        session_btn_row = QHBoxLayout()
+        session_btn_row.setSpacing(8)
+
+        self.sessions_refresh_btn = QPushButton("Refresh sessions")
+        self.sessions_refresh_btn.setObjectName("ghostBtn")
+        self.sessions_refresh_btn.clicked.connect(self.session_refresh_requested.emit)
+        session_btn_row.addWidget(self.sessions_refresh_btn)
+
+        self.sessions_revoke_btn = QPushButton("Revoke selected")
+        self.sessions_revoke_btn.clicked.connect(self._on_revoke_selected_sessions)
+        session_btn_row.addWidget(self.sessions_revoke_btn)
+
+        session_btn_row.addStretch()
+        layout.addLayout(session_btn_row)
+
+        self.sessions_list = QListWidget()
+        self.sessions_list.setMinimumHeight(140)
+        layout.addWidget(self.sessions_list)
 
         self._add_separator(layout)
 
@@ -428,6 +519,11 @@ class SettingsPanel(QWidget):
         self.kanban_title_label.setText(t("kanban_settings_title"))
         self.kanban_min_width_label.setText(t("kanban_min_width"))
         self.kanban_width_reset_btn.setText(t("reset_default"))
+        self.kanban_auto_complete_check.setText(t("kanban_auto_complete_toggle"))
+        self.kanban_recent_completed_check.setText(t("recent_completed_toggle"))
+        self.sessions_title_label.setText("API Sessions")
+        self.sessions_refresh_btn.setText("Refresh sessions")
+        self.sessions_revoke_btn.setText("Revoke selected")
         self.mini_views_label.setText(t("mini_views_title"))
         self.mini_view_tasks_check.setText(t("mini_view_tasks"))
         self.mini_view_quick_check.setText(t("mini_view_quick"))
@@ -476,6 +572,28 @@ class SettingsPanel(QWidget):
         self.kanban_min_width_spin.blockSignals(True)
         self.kanban_min_width_spin.setValue(max(180, min(420, int(min_width))))
         self.kanban_min_width_spin.blockSignals(False)
+
+    def set_kanban_auto_complete(self, enabled: bool, color: str, retention_days: int):
+        self.kanban_auto_complete_check.blockSignals(True)
+        self.kanban_auto_complete_color.blockSignals(True)
+        self.kanban_auto_complete_days.blockSignals(True)
+        self.kanban_auto_complete_check.setChecked(bool(enabled))
+        idx = self.kanban_auto_complete_color.findData(color)
+        if idx < 0:
+            idx = 0
+        self.kanban_auto_complete_color.setCurrentIndex(idx)
+        self.kanban_auto_complete_days.setValue(max(1, min(30, int(retention_days))))
+        self.kanban_auto_complete_check.blockSignals(False)
+        self.kanban_auto_complete_color.blockSignals(False)
+        self.kanban_auto_complete_days.blockSignals(False)
+
+    def set_kanban_recent_completed(self, enabled: bool, days: int):
+        self.kanban_recent_completed_check.blockSignals(True)
+        self.kanban_recent_completed_days.blockSignals(True)
+        self.kanban_recent_completed_check.setChecked(bool(enabled))
+        self.kanban_recent_completed_days.setValue(max(1, min(30, int(days))))
+        self.kanban_recent_completed_check.blockSignals(False)
+        self.kanban_recent_completed_days.blockSignals(False)
 
     def _reset_kanban_width(self):
         self.kanban_min_width_spin.setValue(self.KANBAN_MIN_COL_DEFAULT)
@@ -547,3 +665,33 @@ class SettingsPanel(QWidget):
         self.color_combo.blockSignals(True)
         self.color_combo.setCurrentIndex(idx)
         self.color_combo.blockSignals(False)
+
+    def set_sessions(self, sessions: list[dict]):
+        self.sessions_list.clear()
+        sessions = sessions or []
+        if not sessions:
+            item = QListWidgetItem("No active sessions")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.sessions_list.addItem(item)
+            return
+
+        for session in sessions:
+            current = " [current]" if session.get("is_current") else ""
+            device = session.get("device_info") or "Unknown device"
+            created = session.get("created_at")
+            text = f"#{session.get('id')} {device} | {created}{current}"
+            item = QListWidgetItem(text)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, int(session.get("id")))
+            self.sessions_list.addItem(item)
+
+    def _on_revoke_selected_sessions(self):
+        session_ids = []
+        for row in range(self.sessions_list.count()):
+            item = self.sessions_list.item(row)
+            session_id = item.data(Qt.ItemDataRole.UserRole)
+            if session_id is not None and item.checkState() == Qt.CheckState.Checked:
+                session_ids.append(int(session_id))
+        if session_ids:
+            self.session_revoke_requested.emit(session_ids)

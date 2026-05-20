@@ -491,6 +491,8 @@ class KanbanView(QWidget):
         super().__init__(parent)
         self.min_column_width = 260
         self.show_quick = False
+        self.show_auto_complete = False
+        self.show_recent_completed = False
         self._category_order_ids: list[int] = []
         self._columns: list[KanbanColumn] = []
         self._build_ui()
@@ -571,6 +573,12 @@ class KanbanView(QWidget):
         self.show_quick_check.setChecked(self.show_quick)
         self.show_quick_check.blockSignals(False)
 
+    def set_show_auto_complete(self, enabled: bool):
+        self.show_auto_complete = bool(enabled)
+
+    def set_show_recent_completed(self, enabled: bool):
+        self.show_recent_completed = bool(enabled)
+
     def _on_show_quick_changed(self, state):
         self.show_quick = bool(state)
         self.show_quick_toggled.emit(self.show_quick)
@@ -579,7 +587,7 @@ class KanbanView(QWidget):
         self.min_column_width = max(180, int(min_column_width))
         self._apply_column_sizing()
 
-    def refresh(self, tasks: list[dict], categories: list[dict]):
+    def refresh(self, tasks: list[dict], categories: list[dict], recent_completed: list[dict] = None, auto_complete_tasks: list[dict] = None, auto_complete_color: str = "#D1D5DB"):
         while self.board_layout.count() > 1:
             item = self.board_layout.takeAt(0)
             if item.widget():
@@ -596,6 +604,9 @@ class KanbanView(QWidget):
                 quick_tasks.append(task)
             else:
                 normal_tasks.append(task)
+
+        auto_tasks: list[dict] = auto_complete_tasks or []
+        recent_tasks: list[dict] = recent_completed or []
 
         grouped: dict[object, list[dict]] = {None: []}
         for cat in categories:
@@ -621,6 +632,20 @@ class KanbanView(QWidget):
                 allow_drag=False,
             )
 
+        if self.show_auto_complete and auto_tasks:
+            self._add_column(
+                "__auto_complete__",
+                t("kanban_auto_complete_column"),
+                auto_complete_color or "#D1D5DB",
+                False,
+                False,
+                False,
+                auto_tasks,
+                bg_color="#F3F4F6",
+                allow_drop=False,
+                allow_drag=False,
+            )
+
         # Default uncategorized column
         self._add_column(None, t("kanban_uncategorized"), "", False, False, True, grouped.get(None, []))
 
@@ -633,6 +658,20 @@ class KanbanView(QWidget):
                 True,
                 True,
                 grouped.get(cat["id"], []),
+            )
+
+        if self.show_recent_completed and recent_tasks:
+            self._add_column(
+                "__recent_completed__",
+                t("recent_completed_column"),
+                "#CBD5E1",
+                False,
+                False,
+                False,
+                recent_tasks,
+                bg_color="#F8FAFC",
+                allow_drop=False,
+                allow_drag=False,
             )
 
         self._apply_column_sizing()
